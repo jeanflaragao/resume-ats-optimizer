@@ -1,0 +1,109 @@
+# Entry point for turning an uploaded LinkedIn export or personal resume into
+# a persisted Cv. Wraps everything in a transaction: if the extracted data
+# can't satisfy Experience/Education validations (e.g. a regex parse that
+# couldn't find a company name), the whole import rolls back and raises
+# rather than silently persisting partial/garbage data.
+class Cv::Import
+  class UnsupportedFormatError < StandardError; end
+
+  STRATEGIES = {
+    "llm" => { "pdf" => Cv::Extractors::Llm, "json" => Cv::Extractors::Llm },
+    "regex" => { "pdf" => Cv::Extractors::PdfRegex, "json" => Cv::Extractors::JsonMapper }
+  }.freeze
+
+  def self.call(file:, strategy:)
+    new(file: file, strategy: strategy).call
+  end
+
+  def initialize(file:, strategy:)
+    @file = file
+    @strategy = strategy
+  end
+
+  def call
+    data = extractor.call(file_path: path)
+    persist(data)
+  end
+
+  private
+
+  attr_reader :file, :strategy
+
+  def extractor
+    @extractor ||= begin
+      strategies = STRATEGIES[strategy] or raise UnsupportedFormatError, "Unknown strategy: #{strategy.inspect}"
+      strategies[format] or raise UnsupportedFormatError, "No #{strategy} extractor for .#{format} files"
+    end
+  end
+
+  def format
+    File.extname(filename).delete_prefix(".").downcase
+  end
+
+  def filename
+    file.respond_to?(:original_filename) ? file.original_filename : path
+  end
+
+  def path
+    file.respond_to?(:path) ? file.path.to_s : file.to_s
+  end
+
+  def source
+    extractor.name.demodulize.underscore
+  end
+
+  def persist(data)
+    Cv.transaction do
+      cv = Cv.create!(
+        summary: data["summary"],
+        skills: Array(data["skills"]),
+        source: source
+      )
+
+      Array(data["experiences"]).each_with_index do |experience, index|
+        cv.experiences.create!(
+          company: experience["company"],
+          title: experience["title"],
+          location: experience["location"],
+          starts_on: parse_date(experience["starts_on"]),
+          ends_on: parse_date(experience["ends_on"]),
+          bullets: Array(experience["bullets"]),
+          position: index
+        )
+      end
+
+      Array(data["educations"]).each_with_index do |education, index|
+        cv.educations.create!(
+          school: education["school"],
+          degree: education["degree"],
+          field_of_study: education["field_of_study"],
+          starts_on: parse_date(education["starts_on"]),
+          ends_on: parse_date(education["ends_on"]),
+          position: index
+        )
+      end
+
+      cv
+    end
+  end
+
+  # Date.parse can't handle bare "YYYY" or "YYYY-MM" (both valid per
+  # Cv::ExtractionSchema's description and common on resumes that only give a
+  # year for education dates), so those are handled explicitly before falling
+  # back to Date.parse for everything else (including "Jan 2020"-style text).
+  def parse_date(value)
+    return nil if value.blank?
+    return nil if value.match?(/\A(present|current)\z/i)
+
+    case value
+    when /\A(\d{4})-(\d{2})\z/
+      Date.new($1.to_i, $2.to_i, 1)
+    when /\A\d{4}\z/
+      Date.new(value.to_i, 1, 1)
+    else
+      Date.parse(value)
+    end
+  rescue ArgumentError, TypeError
+    nil
+  end
+end

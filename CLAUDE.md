@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-The Rails app is scaffolded (issue #3) per the Stack decided in issue #1, and the CV data model
-exists (issue #5: `Cv`/`Experience`/`Education`). No parsing, prompts, or PDF template yet
-(issues #4, #6 onward). The project is named `resume-ats-optimizer`, a hosted, multi-user tool
+The Rails app is scaffolded (issue #3) per the Stack decided in issue #1, the CV data model
+exists (issue #5: `Cv`/`Experience`/`Education`), and CV import/parsing exists (issue #4:
+`Cv::Import` with LLM and deterministic extraction strategies). No job-description prompts or PDF
+template yet (issues #6-#18 onward, minus #4/#5). The project is named `resume-ats-optimizer`, a
+hosted, multi-user tool
 for optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored CV as a downloadable PDF.
 
@@ -32,8 +34,11 @@ paste a job description, and get back an ATS-friendly, tailored CV as a download
 - **PDF generation**: Prawn (pure Ruby, programmatic), not Grover/Puppeteer. The required CV
   template is deliberately simple — no tables, columns, or images, standard fonts — so
   Prawn's flow layout is sufficient and avoids bundling headless Chrome into the Kamal image.
-- **LinkedIn export parsing**: `pdf-reader` for the PDF export path (text extraction only), Ruby's
-  built-in `JSON` for the JSON export path.
+- **LinkedIn export parsing**: two selectable strategies (issue #4) — an LLM extractor that sends
+  the uploaded file straight to Claude via RubyLLM's structured output (`with_schema`, no
+  `pdf-reader` needed, robust to arbitrary resume layouts) and a deterministic extractor
+  (`pdf-reader` + regex/heuristics for PDF, direct `JSON` mapping for JSON) that's free and fully
+  unit-testable but only reliable on LinkedIn's fairly consistent PDF export layout.
 - **Auth**: Rails 8's built-in authentication generator, not Devise.
 - **Testing**: Minitest, the Rails default — no extra gem needed.
 
@@ -74,12 +79,32 @@ Otherwise standard Rails 8 conventions.
   don't need independent identity yet; structured fields (`company`, `title`, `school`, dates)
   are real columns. No `User`/auth model exists yet, so `Cv` has no owner — that's a follow-on
   migration whenever auth is implemented, not part of the CV schema itself.
-- As the remaining pipeline issues (#4, #6-#18) land, expect: LLM calls and PDF rendering as
-  Solid Queue jobs (`app/jobs`), comparison/scoring as plain Ruby service objects
-  (`app/services`), and Turbo-driven views per pipeline stage (`app/views`, `app/controllers`).
+- **`app/services/cv/`**: CV import/extraction, all under the `Cv::` namespace (nested under the
+  `Cv` model itself — a supported Zeitwerk "class as namespace" pattern).
+  - `Import` — entry point, `Cv::Import.call(file:, strategy: "llm" | "regex")`. Infers format
+    (pdf/json) from the filename, picks the matching extractor, and persists the result inside a
+    transaction (`create!`, not `create` — an extraction that can't satisfy `Experience`/
+    `Education` validations rolls back and raises rather than silently persisting partial data).
+    Records which extractor ran in `cvs.source`.
+  - `ExtractionSchema` — the `RubyLLM::Schema` used by the LLM extractor; defines the shared
+    normalized hash shape (`summary`, `skills`, `experiences[]`, `educations[]`) that every
+    extractor returns and `Import` consumes.
+  - `Extractors::Llm` — sends the file directly to Claude (`chat.with_schema(...).ask(prompt,
+    with: file_path)`), works unmodified for PDF or JSON. Takes `chat:` as a keyword arg
+    (default `RubyLLM.chat`) so tests can inject a fake instead of hitting the network.
+  - `Extractors::PdfRegex` — deterministic PDF path: `pdf-reader` for text, then a small state
+    machine over the lines (section headers → date-range lines → bullet-prefixed lines) to find
+    entry boundaries. Best-effort by nature; see the Stack section above for the trade-off.
+  - `Extractors::JsonMapper` — deterministic JSON path: parses and maps a JSON file already
+    shaped like the normalized hash above.
+  - Note: `config/initializers/ruby_llm.rb` has `require "ruby_llm/schema"` — the schema DSL
+    isn't auto-required by the `ruby_llm` gem itself.
+- As the remaining pipeline issues (#6-#18) land, expect: job-description/comparison LLM calls
+  and PDF rendering as Solid Queue jobs (`app/jobs`), and Turbo-driven views per pipeline stage
+  (`app/views`, `app/controllers`).
 
 ## Next steps for Claude
 
-As the pipeline issues (#4, #6 onward) add real structure (parsing, jobs, services), update the
+As the pipeline issues (#6 onward) add real structure (jobs, controllers, views), update the
 Project layout section above to describe how the major pieces fit together, rather than
 speculating ahead of the code that exists.
