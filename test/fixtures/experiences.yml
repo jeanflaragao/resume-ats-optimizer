@@ -1,0 +1,19 @@
+most_recent:
+  cv: one
+  company: Acme Corp
+  title: Senior Engineer
+  location: Remote
+  starts_on: 2020-01-01
+  ends_on:
+  bullets: ["Led migration to microservices", "Mentored three junior engineers"]
+  position: 1
+
+earlier:
+  cv: one
+  company: Globex
+  title: Software Engineer
+  location: New York, NY
+  starts_on: 2016-01-01
+  ends_on: 2019-12-31
+  bullets: []
+  position: 2

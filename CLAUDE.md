@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-The Rails app is scaffolded (issue #3) per the Stack decided in issue #1, but no product code
-exists yet — no CV schema, parsing, prompts, or PDF template (issues #4 onward). The project is
-named `resume-ats-optimizer`, a hosted, multi-user tool for optimizing resumes against Applicant
-Tracking Systems (ATS): upload a LinkedIn data export, paste a job description, and get back an
-ATS-friendly, tailored CV as a downloadable PDF.
+The Rails app is scaffolded (issue #3) per the Stack decided in issue #1, and the CV data model
+exists (issue #5: `Cv`/`Experience`/`Education`). No parsing, prompts, or PDF template yet
+(issues #4, #6 onward). The project is named `resume-ats-optimizer`, a hosted, multi-user tool
+for optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
+paste a job description, and get back an ATS-friendly, tailored CV as a downloadable PDF.
 
 ## Stack
 
@@ -63,15 +63,23 @@ No Postgres or `libpq` is required on the host — everything runs through Docke
 
 ## Project layout
 
-Standard Rails 8 conventions — no app-specific structure exists yet beyond the generated
-skeleton (`app/`, `config/`, `db/`, `test/`). As the pipeline issues (#4-#18) land, expect:
-CV/job data as ActiveRecord models (`app/models`), LLM calls and PDF rendering as Solid Queue
-jobs (`app/jobs`), comparison/scoring as plain Ruby service objects (`app/services`), and
-Turbo-driven views per pipeline stage (`app/views`, `app/controllers`). Update this section as
-that structure is actually created, rather than in advance of it.
+Otherwise standard Rails 8 conventions.
+
+- **`app/models`**: `Cv` (`summary:text`, `skills:jsonb` array of strings) `has_many
+  :experiences` and `:educations`, both ordered by a `position:integer` column (preserves the
+  source CV's original ordering independent of dates, which may be missing/ambiguous from a
+  parsed export) and `dependent: :destroy`. `Experience` (`company`/`title` required,
+  `bullets:jsonb` array of strings) and `Education` (`school` required) each `belongs_to :cv`.
+  Bullets and skills are jsonb string arrays rather than their own tables — unstructured lists
+  don't need independent identity yet; structured fields (`company`, `title`, `school`, dates)
+  are real columns. No `User`/auth model exists yet, so `Cv` has no owner — that's a follow-on
+  migration whenever auth is implemented, not part of the CV schema itself.
+- As the remaining pipeline issues (#4, #6-#18) land, expect: LLM calls and PDF rendering as
+  Solid Queue jobs (`app/jobs`), comparison/scoring as plain Ruby service objects
+  (`app/services`), and Turbo-driven views per pipeline stage (`app/views`, `app/controllers`).
 
 ## Next steps for Claude
 
-As the pipeline issues (#4 onward) add real structure (models, jobs, services), update the
+As the pipeline issues (#4, #6 onward) add real structure (parsing, jobs, services), update the
 Project layout section above to describe how the major pieces fit together, rather than
 speculating ahead of the code that exists.
