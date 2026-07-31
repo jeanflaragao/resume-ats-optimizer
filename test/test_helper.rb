@@ -1,3 +1,12 @@
+require "simplecov"
+SimpleCov.start "rails" do
+  # Measured baseline as of the coverage-tracking PR: 95.42% (334/350 lines).
+  # Set a few points below that rather than at/above it, so the threshold
+  # has room to absorb minor fluctuations without blocking every PR, while
+  # still catching a real regression.
+  minimum_coverage 90
+end
+
 ENV["RAILS_ENV"] ||= "test"
 require_relative "../config/environment"
 require "rails/test_help"
