@@ -1,9 +1,14 @@
 # LLM call that rephrases a resume's existing bullets to pick up a job
 # posting's terminology/keywords, without adding anything not already true of
 # the original bullet. Pairs with Comparison (deterministic) rather than
-# replacing it — this only rewords, it never decides what's a match.
+# replacing it — this only rewords, it never decides what's a match. The
+# prompt alone isn't trusted: each rewritten bullet is checked with
+# FidelityCheck against its own original (only), and any bullet that fails
+# falls back to its original wording rather than risking invented content.
 class BulletRewriter
   class MismatchedBulletCountError < StandardError; end
+
+  FIDELITY_MIN_TOKEN_COVERAGE = FidelityCheck::DEFAULT_MIN_TOKEN_COVERAGE
 
   class Schema < RubyLLM::Schema
     array :bullets, of: :string,
@@ -43,12 +48,30 @@ class BulletRewriter
       raise MismatchedBulletCountError, "Expected #{bullets.size} rewritten bullets, got #{rewritten.size}"
     end
 
-    rewritten
+    bullets.zip(rewritten).map.with_index { |(original, candidate), index| verify(original, candidate, index) }
   end
 
   private
 
   attr_reader :bullets, :job_description_text, :chat
+
+  # Falls back to the original bullet (guaranteed-safe, real user data) rather
+  # than raising — a content-fidelity failure on one bullet always has an
+  # obvious, safe 1:1 recovery, unlike a bullet-count mismatch.
+  def verify(original, candidate, index)
+    result = FidelityCheck.call(
+      candidate_text: candidate,
+      source_text: original,
+      min_token_coverage: FIDELITY_MIN_TOKEN_COVERAGE
+    )
+    return candidate if result.passed
+
+    Rails.logger.warn(
+      "BulletRewriter: bullet #{index + 1} failed fidelity check " \
+      "(unverifiable: #{result.unverifiable_tokens.join(', ')}); using original wording instead."
+    )
+    original
+  end
 
   def prompt
     <<~PROMPT

@@ -16,18 +16,18 @@ class BulletRewriterTest < ActiveSupport::TestCase
   end
 
   test "sends the bullets and job description to RubyLLM and returns the rewritten bullets" do
-    fake_chat = FakeChat.new({ "bullets" => [ "Shipped a Ruby on Rails platform rewrite" ] })
+    fake_chat = FakeChat.new({ "bullets" => [ "Delivered a platform rewrite for backend services" ] })
 
     result = BulletRewriter.call(
-      bullets: [ "Shipped a platform rewrite" ],
-      job_description_text: "Looking for a Ruby on Rails engineer.",
+      bullets: [ "Shipped a platform rewrite for backend services" ],
+      job_description_text: "Looking for a backend engineer with platform rewrite experience.",
       chat: fake_chat
     )
 
-    assert_equal [ "Shipped a Ruby on Rails platform rewrite" ], result
+    assert_equal [ "Delivered a platform rewrite for backend services" ], result
     assert_equal BulletRewriter::Schema, fake_chat.schema
-    assert_includes fake_chat.prompt, "Shipped a platform rewrite"
-    assert_includes fake_chat.prompt, "Looking for a Ruby on Rails engineer."
+    assert_includes fake_chat.prompt, "Shipped a platform rewrite for backend services"
+    assert_includes fake_chat.prompt, "Looking for a backend engineer with platform rewrite experience."
   end
 
   test "returns an empty array without calling the LLM when there are no bullets" do
@@ -49,5 +49,46 @@ class BulletRewriterTest < ActiveSupport::TestCase
         chat: fake_chat
       )
     end
+  end
+
+  test "falls back to the original bullet and logs a warning when a rewrite fails its fidelity check" do
+    fake_chat = FakeChat.new({ "bullets" => [ "Built REST APIs using Kubernetes and reduced latency by 40%" ] })
+
+    result, log_output = with_captured_log do
+      BulletRewriter.call(bullets: [ "Built REST APIs" ], job_description_text: "Anything.", chat: fake_chat)
+    end
+
+    assert_equal [ "Built REST APIs" ], result
+    assert_includes log_output, "bullet 1"
+    assert_includes log_output, "kubernetes"
+  end
+
+  test "only falls back the bullet that fails fidelity, keeping the one that passes, in a mixed batch" do
+    fake_chat = FakeChat.new({
+      "bullets" => [
+        "Delivered a platform rewrite for backend services",
+        "Built REST APIs using Kubernetes and reduced latency by 40%"
+      ]
+    })
+
+    result = BulletRewriter.call(
+      bullets: [ "Shipped a platform rewrite for backend services", "Built REST APIs" ],
+      job_description_text: "Anything.",
+      chat: fake_chat
+    )
+
+    assert_equal [ "Delivered a platform rewrite for backend services", "Built REST APIs" ], result
+  end
+
+  private
+
+  def with_captured_log
+    original_logger = Rails.logger
+    io = StringIO.new
+    Rails.logger = Logger.new(io)
+    result = yield
+    [ result, io.string ]
+  ensure
+    Rails.logger = original_logger
   end
 end
