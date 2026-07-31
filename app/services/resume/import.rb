@@ -1,14 +1,14 @@
 # Entry point for turning an uploaded LinkedIn export or personal resume into
-# a persisted Cv. Wraps everything in a transaction: if the extracted data
+# a persisted Resume. Wraps everything in a transaction: if the extracted data
 # can't satisfy Experience/Education validations (e.g. a regex parse that
 # couldn't find a company name), the whole import rolls back and raises
 # rather than silently persisting partial/garbage data.
-class Cv::Import
+class Resume::Import
   class UnsupportedFormatError < StandardError; end
 
   STRATEGIES = {
-    "llm" => { "pdf" => Cv::Extractors::Llm, "json" => Cv::Extractors::Llm },
-    "regex" => { "pdf" => Cv::Extractors::PdfRegex, "json" => Cv::Extractors::JsonMapper }
+    "llm" => { "pdf" => Resume::Extractors::Llm, "json" => Resume::Extractors::Llm },
+    "regex" => { "pdf" => Resume::Extractors::PdfRegex, "json" => Resume::Extractors::JsonMapper }
   }.freeze
 
   def self.call(file:, strategy:)
@@ -53,15 +53,15 @@ class Cv::Import
   end
 
   def persist(data)
-    Cv.transaction do
-      cv = Cv.create!(
+    Resume.transaction do
+      resume = Resume.create!(
         summary: data["summary"],
         skills: Array(data["skills"]),
         source: source
       )
 
       Array(data["experiences"]).each_with_index do |experience, index|
-        cv.experiences.create!(
+        resume.experiences.create!(
           company: experience["company"],
           title: experience["title"],
           location: experience["location"],
@@ -73,7 +73,7 @@ class Cv::Import
       end
 
       Array(data["educations"]).each_with_index do |education, index|
-        cv.educations.create!(
+        resume.educations.create!(
           school: education["school"],
           degree: education["degree"],
           field_of_study: education["field_of_study"],
@@ -83,12 +83,12 @@ class Cv::Import
         )
       end
 
-      cv
+      resume
     end
   end
 
   # Date.parse can't handle bare "YYYY" or "YYYY-MM" (both valid per
-  # Cv::ExtractionSchema's description and common on resumes that only give a
+  # Resume::ExtractionSchema's description and common on resumes that only give a
   # year for education dates), so those are handled explicitly before falling
   # back to Date.parse for everything else (including "Jan 2020"-style text).
   def parse_date(value)

@@ -1,4 +1,4 @@
-class Cv::ExtractionSchema < RubyLLM::Schema
+class Resume::ExtractionSchema < RubyLLM::Schema
   string :summary, required: false,
     description: "The candidate's professional summary/about section, verbatim or lightly condensed. Omit if none is present."
 

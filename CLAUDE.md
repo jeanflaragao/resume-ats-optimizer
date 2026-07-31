@@ -5,12 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project status
 
 The Rails app is scaffolded (issue #3) per the Stack decided in issue #1, the CV data model
-exists (issue #5: `Cv`/`Experience`/`Education`), CV import/parsing exists (issue #4:
-`Cv::Import` with LLM and deterministic extraction strategies), and the job-description
-requirement extraction prompt exists (issue #7: `JobDescription::Extractor`, LLM-only — pasted
-text, no file upload or deterministic strategy). No CV/job comparison, bullet rewriting, match
-scoring, or PDF template yet (issues #8-#18 onward, minus #4/#5/#7). The project is named
-`resume-ats-optimizer`, a hosted, multi-user tool
+exists (issue #5: `Resume`/`Experience`/`Education` — originally named `Cv`, renamed to `Resume`
+for clarity), CV import/parsing exists (issue #4: `Resume::Import` with LLM and deterministic
+extraction strategies), and the job-description requirement extraction prompt exists (issue #7:
+`JobDescription::Extractor`, LLM-only — pasted text, no file upload or deterministic strategy).
+No CV/job comparison, bullet rewriting, match scoring, or PDF template yet (issues #8-#18
+onward, minus #4/#5/#7). The project is named `resume-ats-optimizer`, a hosted, multi-user tool
 for optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored CV as a downloadable PDF.
 
@@ -72,22 +72,25 @@ No Postgres or `libpq` is required on the host — everything runs through Docke
 
 Otherwise standard Rails 8 conventions.
 
-- **`app/models`**: `Cv` (`summary:text`, `skills:jsonb` array of strings) `has_many
+- **`app/models`**: `Resume` (`summary:text`, `skills:jsonb` array of strings) `has_many
   :experiences` and `:educations`, both ordered by a `position:integer` column (preserves the
-  source CV's original ordering independent of dates, which may be missing/ambiguous from a
+  source resume's original ordering independent of dates, which may be missing/ambiguous from a
   parsed export) and `dependent: :destroy`. `Experience` (`company`/`title` required,
-  `bullets:jsonb` array of strings) and `Education` (`school` required) each `belongs_to :cv`.
-  Bullets and skills are jsonb string arrays rather than their own tables — unstructured lists
-  don't need independent identity yet; structured fields (`company`, `title`, `school`, dates)
-  are real columns. No `User`/auth model exists yet, so `Cv` has no owner — that's a follow-on
-  migration whenever auth is implemented, not part of the CV schema itself.
-- **`app/services/cv/`**: CV import/extraction, all under the `Cv::` namespace (nested under the
-  `Cv` model itself — a supported Zeitwerk "class as namespace" pattern).
-  - `Import` — entry point, `Cv::Import.call(file:, strategy: "llm" | "regex")`. Infers format
-    (pdf/json) from the filename, picks the matching extractor, and persists the result inside a
-    transaction (`create!`, not `create` — an extraction that can't satisfy `Experience`/
-    `Education` validations rolls back and raises rather than silently persisting partial data).
-    Records which extractor ran in `cvs.source`.
+  `bullets:jsonb` array of strings) and `Education` (`school` required) each `belongs_to
+  :resume`. Bullets and skills are jsonb string arrays rather than their own tables —
+  unstructured lists don't need independent identity yet; structured fields (`company`, `title`,
+  `school`, dates) are real columns. No `User`/auth model exists yet, so `Resume` has no owner —
+  that's a follow-on migration whenever auth is implemented, not part of the resume schema
+  itself. Table/model were originally named `Cv`/`cvs`, renamed to `Resume`/`resumes` via a
+  dedicated `rename_table`/`rename_column` migration (not by editing the original migrations)
+  since they'd already run in dev.
+- **`app/services/resume/`**: resume import/extraction, all under the `Resume::` namespace
+  (nested under the `Resume` model itself — a supported Zeitwerk "class as namespace" pattern).
+  - `Import` — entry point, `Resume::Import.call(file:, strategy: "llm" | "regex")`. Infers
+    format (pdf/json) from the filename, picks the matching extractor, and persists the result
+    inside a transaction (`create!`, not `create` — an extraction that can't satisfy
+    `Experience`/`Education` validations rolls back and raises rather than silently persisting
+    partial data). Records which extractor ran in `resumes.source`.
   - `ExtractionSchema` — the `RubyLLM::Schema` used by the LLM extractor; defines the shared
     normalized hash shape (`summary`, `skills`, `experiences[]`, `educations[]`) that every
     extractor returns and `Import` consumes.
@@ -103,11 +106,11 @@ Otherwise standard Rails 8 conventions.
     isn't auto-required by the `ruby_llm` gem itself.
 - **`app/services/job_description/`** (issue #7): `JobDescription::Extractor.call(text:, chat:
   RubyLLM.chat)` pulls ATS-relevant requirements out of a pasted job description — no file
-  upload, so unlike `Cv::Extractors::Llm` it embeds the text directly in the prompt instead of
-  using `with:`. `JobDescription::ExtractionSchema` defines the shape it returns: `title`,
+  upload, so unlike `Resume::Extractors::Llm` it embeds the text directly in the prompt instead
+  of using `with:`. `JobDescription::ExtractionSchema` defines the shape it returns: `title`,
   `required_skills[]`, `preferred_skills[]`, `keywords[]` (catch-all for ATS-relevant terms —
   tools, certifications, methodologies — not already captured as a skill). No persistence model
-  yet; that's expected once comparison (issue #8) needs to store/relate results to a `Cv`.
+  yet; that's expected once comparison (issue #8) needs to store/relate results to a `Resume`.
 - As the remaining pipeline issues (#8-#18) land, expect: CV/job comparison and PDF rendering as
   Solid Queue jobs (`app/jobs`), and Turbo-driven views per pipeline stage (`app/views`,
   `app/controllers`).

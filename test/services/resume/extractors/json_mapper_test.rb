@@ -1,8 +1,8 @@
 require "test_helper"
 
-class Cv::Extractors::JsonMapperTest < ActiveSupport::TestCase
+class Resume::Extractors::JsonMapperTest < ActiveSupport::TestCase
   test "maps a well-formed JSON export into the normalized hash shape" do
-    result = Cv::Extractors::JsonMapper.call(file_path: fixture_path(<<~JSON))
+    result = Resume::Extractors::JsonMapper.call(file_path: fixture_path(<<~JSON))
       {
         "summary": "Product-minded engineer.",
         "skills": ["Go", "Kubernetes"],
@@ -23,7 +23,7 @@ class Cv::Extractors::JsonMapperTest < ActiveSupport::TestCase
   end
 
   test "defaults missing collections to empty arrays" do
-    result = Cv::Extractors::JsonMapper.call(file_path: fixture_path('{"summary": "Just a summary."}'))
+    result = Resume::Extractors::JsonMapper.call(file_path: fixture_path('{"summary": "Just a summary."}'))
 
     assert_equal [], result["skills"]
     assert_equal [], result["experiences"]
@@ -31,8 +31,8 @@ class Cv::Extractors::JsonMapperTest < ActiveSupport::TestCase
   end
 
   test "raises InvalidJsonError for malformed JSON" do
-    assert_raises(Cv::Extractors::JsonMapper::InvalidJsonError) do
-      Cv::Extractors::JsonMapper.call(file_path: fixture_path("not json"))
+    assert_raises(Resume::Extractors::JsonMapper::InvalidJsonError) do
+      Resume::Extractors::JsonMapper.call(file_path: fixture_path("not json"))
     end
   end
 

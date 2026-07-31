@@ -10,45 +10,45 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_30_171247) do
+ActiveRecord::Schema[8.1].define(version: 2026_07_31_211212) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
-  create_table "cvs", force: :cascade do |t|
-    t.text "summary"
-    t.jsonb "skills", default: [], null: false
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.string "source"
-  end
-
   create_table "educations", force: :cascade do |t|
-    t.bigint "cv_id", null: false
-    t.string "school", null: false
-    t.string "degree"
-    t.string "field_of_study"
-    t.date "starts_on"
-    t.date "ends_on"
-    t.integer "position"
     t.datetime "created_at", null: false
+    t.string "degree"
+    t.date "ends_on"
+    t.string "field_of_study"
+    t.integer "position"
+    t.bigint "resume_id", null: false
+    t.string "school", null: false
+    t.date "starts_on"
     t.datetime "updated_at", null: false
-    t.index ["cv_id"], name: "index_educations_on_cv_id"
+    t.index ["resume_id"], name: "index_educations_on_resume_id"
   end
 
   create_table "experiences", force: :cascade do |t|
-    t.bigint "cv_id", null: false
-    t.string "company", null: false
-    t.string "title", null: false
-    t.string "location"
-    t.date "starts_on"
-    t.date "ends_on"
     t.jsonb "bullets", default: [], null: false
-    t.integer "position"
+    t.string "company", null: false
     t.datetime "created_at", null: false
+    t.date "ends_on"
+    t.string "location"
+    t.integer "position"
+    t.bigint "resume_id", null: false
+    t.date "starts_on"
+    t.string "title", null: false
     t.datetime "updated_at", null: false
-    t.index ["cv_id"], name: "index_experiences_on_cv_id"
+    t.index ["resume_id"], name: "index_experiences_on_resume_id"
   end
 
-  add_foreign_key "educations", "cvs"
-  add_foreign_key "experiences", "cvs"
+  create_table "resumes", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.jsonb "skills", default: [], null: false
+    t.string "source"
+    t.text "summary"
+    t.datetime "updated_at", null: false
+  end
+
+  add_foreign_key "educations", "resumes"
+  add_foreign_key "experiences", "resumes"
 end

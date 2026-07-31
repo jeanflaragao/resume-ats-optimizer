@@ -2,7 +2,7 @@ require "test_helper"
 
 class ExperienceTest < ActiveSupport::TestCase
   test "requires company and title" do
-    experience = Experience.new(cv: cvs(:one))
+    experience = Experience.new(resume: resumes(:one))
 
     assert_not experience.valid?
     assert_includes experience.errors.attribute_names, :company

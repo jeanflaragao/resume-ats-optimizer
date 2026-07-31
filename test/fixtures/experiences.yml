@@ -1,5 +1,5 @@
 most_recent:
-  cv: one
+  resume: one
   company: Acme Corp
   title: Senior Engineer
   location: Remote
@@ -9,7 +9,7 @@ most_recent:
   position: 1
 
 earlier:
-  cv: one
+  resume: one
   company: Globex
   title: Software Engineer
   location: New York, NY

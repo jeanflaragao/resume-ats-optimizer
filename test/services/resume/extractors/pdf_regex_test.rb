@@ -1,9 +1,9 @@
 require "test_helper"
 require "prawn"
 
-class Cv::Extractors::PdfRegexTest < ActiveSupport::TestCase
+class Resume::Extractors::PdfRegexTest < ActiveSupport::TestCase
   test "extracts summary, skills, experiences, and educations from a LinkedIn-style layout" do
-    result = Cv::Extractors::PdfRegex.call(file_path: sample_pdf_path)
+    result = Resume::Extractors::PdfRegex.call(file_path: sample_pdf_path)
 
     assert_equal "Senior backend engineer with 8 years of experience.", result["summary"]
     assert_equal [ "Ruby", "Rails", "PostgreSQL" ], result["skills"]
@@ -30,7 +30,7 @@ class Cv::Extractors::PdfRegexTest < ActiveSupport::TestCase
     path = Rails.root.join("tmp/pdf_regex_test_no_sections.pdf").to_s
     Prawn::Document.generate(path) { text "Just a name, no sections." }
 
-    result = Cv::Extractors::PdfRegex.call(file_path: path)
+    result = Resume::Extractors::PdfRegex.call(file_path: path)
 
     assert_nil result["summary"]
     assert_equal [], result["skills"]
