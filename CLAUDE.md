@@ -63,7 +63,7 @@ folders. Everything lives in standard Rails locations (`app/models/`,
 
 - **Namespace by domain, not by technical type**: `Resume::`, `JobDescription::`
   — not a generic `Services::` catch-all. (Already the pattern in use.)
-- **Entities**: ActiveRecord models (`Cv`, `Experience`, `Education`).
+- **Entities**: ActiveRecord models (`Resume`, `Experience`, `Education`).
   Keep them thin — validations, associations, scopes. No business logic
   that spans multiple models; that belongs in a service object.
 - **Service Objects**: plain Ruby class, single `.call` class method, one
@@ -75,7 +75,7 @@ folders. Everything lives in standard Rails locations (`app/models/`,
   (e.g. `Comparison::Result`). Prefer these over plain hashes for
   structured data passed between service objects.
 - **Query Objects**: only introduce when a query is genuinely complex
-  and reused (e.g. `Experience::ByRelevance.call(cv)`) — not by default.
+  and reused (e.g. `Experience::ByRelevance.call(resume)`) — not by default.
   A normal AR scope is fine until it isn't.
 - **No magic numbers**: any non-obvious constant (weights, thresholds,
   limits) must be a named, documented constant (e.g. `MatchScore::WEIGHTS`)
