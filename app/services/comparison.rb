@@ -4,6 +4,8 @@
 # the resume's skills, summary, or experience bullets — never infers or adds
 # anything not already present in the resume.
 class Comparison
+  include WordBoundaryMatchable
+
   Result = Data.define(
     :matched_required_skills, :missing_required_skills,
     :matched_preferred_skills, :missing_preferred_skills,
@@ -51,14 +53,7 @@ class Comparison
   end
 
   def partition(terms)
-    terms.partition { |term| present_in_resume?(term) }
-  end
-
-  # Word-boundary match rather than plain substring, so a short term like "Go"
-  # doesn't false-positive against "Google" or "Django".
-  def present_in_resume?(term)
-    pattern = /(?<![[:alnum:]])#{Regexp.escape(term.downcase)}(?![[:alnum:]])/
-    resume_text.match?(pattern)
+    terms.partition { |term| word_boundary_match?(term, resume_text) }
   end
 
   def resume_text

@@ -1,4 +1,44 @@
+require "pdf/reader"
+
+# Sends the resume file directly to Claude for extraction, then verifies the
+# result against the source document's own text before returning it —
+# Resume::ExtractionSchema's field descriptions ask the LLM not to invent
+# content, but the prompt alone isn't trusted. Anything that can't be traced
+# back to the source is dropped/nulled rather than persisted, and logged so a
+# drop is debuggable after the fact:
+#
+# - company/title/school/location/each skill: must appear verbatim in the
+#   source text (WordBoundaryMatchable) — the schema treats these as
+#   near-literal fields, and a coverage ratio would be the wrong tool (it's
+#   order-blind, so a fabricated "Acme Corp" whose two words each appear
+#   unrelated elsewhere in the document would false-pass).
+# - bullets/summary: paraphrase-tolerant token-coverage check (FidelityCheck)
+#   — bullets are supposed to be close to verbatim, summary is explicitly
+#   allowed to be "lightly condensed", hence the different thresholds below.
+# - starts_on/ends_on: only the year is checked (legitimate reformatting is
+#   expected, e.g. "Jan 2020" -> "2020-01").
+#
+# A failed check on company/title/school (the only AR-required fields here)
+# drops the whole experience/education entry — nulling would still hit
+# Resume::Import's create! and roll back the entire resume, which defeats the
+# point of checking per-field at all. Everything else is dropped/nulled in
+# place, keeping the rest of the entry intact.
+#
+# Note: reading the file's raw text here (via pdf-reader, for PDFs) to verify
+# against reintroduces pdf-reader's documented layout-reliability ceiling
+# (see Extractors::PdfRegex) as a verification floor under this LLM path —
+# Claude's native PDF understanding can legitimately diverge from pdf-reader's
+# naive text-layer reading (column order, hyphenation, bullet transcription)
+# with zero hallucination involved. Expect some false-positive drops on PDFs
+# from this alone; JSON files don't have this problem (same raw text on both
+# sides).
 class Resume::Extractors::Llm
+  include WordBoundaryMatchable
+
+  BULLET_MIN_TOKEN_COVERAGE = 0.9
+  SUMMARY_MIN_TOKEN_COVERAGE = 0.75
+  YEAR_PATTERN = /\A(\d{4})/
+
   PROMPT = <<~PROMPT.freeze
     Extract the professional summary, skills, work experience, and education from
     the attached document into the given schema.
@@ -10,7 +50,124 @@ class Resume::Extractors::Llm
   PROMPT
 
   def self.call(file_path:, chat: RubyLLM.chat)
-    response = chat.with_schema(Resume::ExtractionSchema).ask(PROMPT, with: file_path)
-    response.content
+    new(file_path: file_path, chat: chat).call
+  end
+
+  def initialize(file_path:, chat:)
+    @file_path = file_path
+    @chat = chat
+  end
+
+  def call
+    data = chat.with_schema(Resume::ExtractionSchema).ask(PROMPT, with: file_path).content
+    verify(data)
+  end
+
+  private
+
+  attr_reader :file_path, :chat
+
+  def verify(data)
+    {
+      "summary" => verified_summary(data["summary"]),
+      "skills" => verified_skills(Array(data["skills"])),
+      "experiences" => Array(data["experiences"]).filter_map { |experience| verified_experience(experience) },
+      "educations" => Array(data["educations"]).filter_map { |education| verified_education(education) }
+    }
+  end
+
+  def verified_summary(summary)
+    return nil if summary.blank?
+
+    result = fidelity_check(summary, SUMMARY_MIN_TOKEN_COVERAGE)
+    return summary if result.passed
+
+    warn_drop("summary", summary, result.unverifiable_tokens.join(", "))
+    nil
+  end
+
+  def verified_skills(skills)
+    skills.select do |skill|
+      next true if word_boundary_match?(skill, source_text)
+
+      warn_drop("skill", skill, "not found in source text")
+      false
+    end
+  end
+
+  def verified_experience(experience)
+    company = experience["company"]
+    title = experience["title"]
+
+    unless word_boundary_match?(company.to_s, source_text) && word_boundary_match?(title.to_s, source_text)
+      warn_drop("experience entry", "company #{company.inspect} / title #{title.inspect}", "not found in source text")
+      return nil
+    end
+
+    experience.merge(
+      "location" => verified_verbatim_field(experience["location"], "location"),
+      "starts_on" => verified_year(experience["starts_on"], "starts_on"),
+      "ends_on" => verified_year(experience["ends_on"], "ends_on"),
+      "bullets" => verified_bullets(Array(experience["bullets"]))
+    )
+  end
+
+  def verified_education(education)
+    school = education["school"]
+
+    unless word_boundary_match?(school.to_s, source_text)
+      warn_drop("education entry", "school #{school.inspect}", "not found in source text")
+      return nil
+    end
+
+    education.merge(
+      "starts_on" => verified_year(education["starts_on"], "starts_on"),
+      "ends_on" => verified_year(education["ends_on"], "ends_on")
+    )
+  end
+
+  def verified_verbatim_field(value, field_name)
+    return value if value.blank?
+    return value if word_boundary_match?(value, source_text)
+
+    warn_drop(field_name, value, "not found in source text")
+    nil
+  end
+
+  def verified_year(date_value, field_name)
+    return date_value if date_value.blank?
+
+    year = date_value[YEAR_PATTERN, 1]
+    return date_value if year && source_text.include?(year)
+
+    warn_drop(field_name, date_value, "year not found in source text")
+    nil
+  end
+
+  def verified_bullets(bullets)
+    bullets.each_with_index.filter_map do |bullet, index|
+      result = fidelity_check(bullet, BULLET_MIN_TOKEN_COVERAGE)
+      next bullet if result.passed
+
+      warn_drop("bullet #{index + 1}", bullet, result.unverifiable_tokens.join(", "))
+      nil
+    end
+  end
+
+  def fidelity_check(candidate_text, min_token_coverage)
+    FidelityCheck.call(candidate_text: candidate_text, source_text: source_text, min_token_coverage: min_token_coverage)
+  end
+
+  def warn_drop(field, value, reason)
+    Rails.logger.warn("Resume::Extractors::Llm: dropped #{field} #{value.inspect} (#{reason})")
+  end
+
+  def source_text
+    @source_text ||= case File.extname(file_path).delete_prefix(".").downcase
+    when "pdf"
+      PDF::Reader.new(file_path).pages.map(&:text).join("\n")
+    else
+      File.read(file_path)
+    end
   end
 end
