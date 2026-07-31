@@ -1,5 +1,5 @@
 class Experience < ApplicationRecord
-  belongs_to :cv
+  belongs_to :resume
 
   validates :company, :title, presence: true
 end

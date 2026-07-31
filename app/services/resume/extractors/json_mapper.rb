@@ -1,4 +1,4 @@
-class Cv::Extractors::JsonMapper
+class Resume::Extractors::JsonMapper
   class InvalidJsonError < StandardError; end
 
   def self.call(file_path:)

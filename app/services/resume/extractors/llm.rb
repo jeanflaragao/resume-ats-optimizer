@@ -1,4 +1,4 @@
-class Cv::Extractors::Llm
+class Resume::Extractors::Llm
   PROMPT = <<~PROMPT.freeze
     Extract the professional summary, skills, work experience, and education from
     the attached document into the given schema.
@@ -10,7 +10,7 @@ class Cv::Extractors::Llm
   PROMPT
 
   def self.call(file_path:, chat: RubyLLM.chat)
-    response = chat.with_schema(Cv::ExtractionSchema).ask(PROMPT, with: file_path)
+    response = chat.with_schema(Resume::ExtractionSchema).ask(PROMPT, with: file_path)
     response.content
   end
 end

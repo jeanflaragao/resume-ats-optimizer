@@ -1,9 +1,9 @@
 require "pdf/reader"
 
-# Best-effort, deterministic alternative to Cv::Extractors::Llm. Works well on
+# Best-effort, deterministic alternative to Resume::Extractors::Llm. Works well on
 # LinkedIn's fairly consistent "Save to PDF" profile export; accuracy degrades
 # on free-form personal resumes since there's no fixed layout to pattern-match.
-class Cv::Extractors::PdfRegex
+class Resume::Extractors::PdfRegex
   SECTION_PATTERNS = {
     summary: /\A(summary|about|profile)\b/i,
     experience: /\A(experience|work experience|employment( history)?)\b/i,
