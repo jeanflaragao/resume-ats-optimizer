@@ -54,6 +54,44 @@ Kamal) for a solo-maintainer, low-ops-overhead deploy. Comparison logic and matc
 free of hallucination risk. Full reasoning and alternatives considered are recorded on
 [issue #1](https://github.com/jeanflaragao/resume-ats-optimizer/issues/1).
 
+## Architecture Conventions
+
+Pragmatic Rails, borrowing specific DDD vocabulary/patterns — not full
+DDD layering. No `app/domain/`, `app/application/`, `app/infrastructure/`
+folders. Everything lives in standard Rails locations (`app/models/`,
+`app/services/`), organized by domain namespace, not technical layer.
+
+- **Namespace by domain, not by technical type**: `Resume::`, `JobDescription::`
+  — not a generic `Services::` catch-all. (Already the pattern in use.)
+- **Entities**: ActiveRecord models (`Cv`, `Experience`, `Education`).
+  Keep them thin — validations, associations, scopes. No business logic
+  that spans multiple models; that belongs in a service object.
+- **Service Objects**: plain Ruby class, single `.call` class method, one
+  responsibility (e.g. `Comparison`, `MatchScore`, `BulletRewriter`,
+  `Resume::Import`). This is the primary pattern for business logic — not
+  repositories, not abstracted persistence layers. ActiveRecord *is* the
+  data access layer; don't hide it behind an interface.
+- **Value Objects**: immutable, no identity, use `Data.define`
+  (e.g. `Comparison::Result`). Prefer these over plain hashes for
+  structured data passed between service objects.
+- **Query Objects**: only introduce when a query is genuinely complex
+  and reused (e.g. `Experience::ByRelevance.call(cv)`) — not by default.
+  A normal AR scope is fine until it isn't.
+- **No magic numbers**: any non-obvious constant (weights, thresholds,
+  limits) must be a named, documented constant (e.g. `MatchScore::WEIGHTS`)
+  — not an inline literal.
+- **Ubiquitous language**: class/method names should match the language
+  used in GitHub issues and this file (e.g. "requirements", "comparison",
+  "match score"), not implementation-detail names.
+- **No LLM calls inside deterministic services**: `Comparison` and
+  `MatchScore` must remain LLM-free. Only extractors
+  (`Resume::Extractors::Llm`, `JobDescription::Extractor`) and `BulletRewriter`
+  call the LLM.
+- **Don't reach for repository/aggregate patterns**: full DDD abstraction
+  over ActiveRecord is unnecessary indirection at this project's scale.
+  `resume.experiences` direct access is fine; no enforced "access only through
+  the aggregate root" rule.
+
 ## Local development
 
 No Postgres or `libpq` is required on the host — everything runs through Docker Compose
