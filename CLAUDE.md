@@ -10,8 +10,9 @@ for clarity), resume import/parsing exists (issue #4: `Resume::Import` with LLM 
 deterministic extraction strategies), the job-description requirement extraction prompt exists
 (issue #7: `JobDescription::Extractor`, LLM-only — pasted text, no file upload or deterministic
 strategy), resume/job comparison exists (issue #8: `Comparison`, deterministic — see Project
-layout below), and the bullet point rewriting prompt exists (issue #9: `BulletRewriter`,
-LLM-only). No match scoring or PDF template yet (issues #10-#18 onward, minus #4/#5/#7/#8/#9).
+layout below), the bullet point rewriting prompt exists (issue #9: `BulletRewriter`, LLM-only),
+and ATS match score calculation exists (issue #10: `MatchScore`, deterministic, built on
+`Comparison::Result`). No PDF template yet (issues #11-#18 onward, minus #4/#5/#7/#8/#9/#10).
 The project is named `resume-ats-optimizer`, a hosted, multi-user tool for
 optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored resume as a downloadable PDF.
@@ -131,9 +132,14 @@ Otherwise standard Rails 8 conventions.
   come back 1:1, rather than silently misaligning rewrites to the wrong experience. Deeper
   automated hallucination safeguards are issue #11, not this one. Returns a plain array, no
   persistence — same pattern as `JobDescription::Extractor`/`Comparison`.
-- As the remaining pipeline issues (#10-#18) land, expect: match scoring and PDF rendering as
-  Solid Queue jobs (`app/jobs`), and Turbo-driven views per pipeline stage (`app/views`,
-  `app/controllers`).
+- **`app/services/match_score.rb`** (issue #10): `MatchScore.call(comparison:)` takes a
+  `Comparison::Result` and reduces it to a single 0-100 integer, or `nil` if the job description
+  had no required/preferred skills or keywords at all to score against (rather than a misleading
+  0 or 100). Deterministic, like `Comparison` — no LLM call, nothing to hallucinate. Required
+  skills count 3x toward the score, preferred skills 2x, keywords 1x (`MatchScore::WEIGHTS`),
+  reflecting that a missing required skill should hurt the score more than a missing keyword.
+- As the remaining pipeline issues (#11-#18) land, expect: PDF rendering as a Solid Queue job
+  (`app/jobs`), and Turbo-driven views per pipeline stage (`app/views`, `app/controllers`).
 
 ## Next steps for Claude
 
