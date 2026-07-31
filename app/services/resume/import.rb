@@ -55,6 +55,9 @@ class Resume::Import
   def persist(data)
     Resume.transaction do
       resume = Resume.create!(
+        name: data["name"],
+        email: data["email"],
+        phone: data["phone"],
         summary: data["summary"],
         skills: Array(data["skills"]),
         source: source

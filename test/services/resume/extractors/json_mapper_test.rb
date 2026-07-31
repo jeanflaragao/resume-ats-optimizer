@@ -4,6 +4,9 @@ class Resume::Extractors::JsonMapperTest < ActiveSupport::TestCase
   test "maps a well-formed JSON export into the normalized hash shape" do
     result = Resume::Extractors::JsonMapper.call(file_path: fixture_path(<<~JSON))
       {
+        "name": "Jane Doe",
+        "email": "jane@example.com",
+        "phone": "555-123-4567",
         "summary": "Product-minded engineer.",
         "skills": ["Go", "Kubernetes"],
         "experiences": [
@@ -15,6 +18,9 @@ class Resume::Extractors::JsonMapperTest < ActiveSupport::TestCase
       }
     JSON
 
+    assert_equal "Jane Doe", result["name"]
+    assert_equal "jane@example.com", result["email"]
+    assert_equal "555-123-4567", result["phone"]
     assert_equal "Product-minded engineer.", result["summary"]
     assert_equal [ "Go", "Kubernetes" ], result["skills"]
     assert_equal "Initech", result["experiences"].first["company"]

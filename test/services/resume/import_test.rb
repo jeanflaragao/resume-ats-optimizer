@@ -5,6 +5,9 @@ class Resume::ImportTest < ActiveSupport::TestCase
     resume = Resume::Import.call(file: fixture_path(valid_json), strategy: "regex")
 
     assert_equal "json_mapper", resume.source
+    assert_equal "Jane Doe", resume.name
+    assert_equal "jane@example.com", resume.email
+    assert_equal "555-123-4567", resume.phone
     assert_equal "Product-minded engineer.", resume.summary
     assert_equal [ "Go", "Kubernetes" ], resume.skills
 
@@ -48,6 +51,9 @@ class Resume::ImportTest < ActiveSupport::TestCase
 
   def valid_json
     {
+      name: "Jane Doe",
+      email: "jane@example.com",
+      phone: "555-123-4567",
       summary: "Product-minded engineer.",
       skills: [ "Go", "Kubernetes" ],
       experiences: [
