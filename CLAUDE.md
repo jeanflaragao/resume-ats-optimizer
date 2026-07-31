@@ -9,9 +9,10 @@ exists (issue #5: `Resume`/`Experience`/`Education` — originally named `Cv`, r
 for clarity), resume import/parsing exists (issue #4: `Resume::Import` with LLM and
 deterministic extraction strategies), the job-description requirement extraction prompt exists
 (issue #7: `JobDescription::Extractor`, LLM-only — pasted text, no file upload or deterministic
-strategy), and resume/job comparison exists (issue #8: `Comparison`, deterministic — see Project
-layout below). No bullet rewriting, match scoring, or PDF template yet (issues #9-#18 onward,
-minus #4/#5/#7/#8). The project is named `resume-ats-optimizer`, a hosted, multi-user tool for
+strategy), resume/job comparison exists (issue #8: `Comparison`, deterministic — see Project
+layout below), and the bullet point rewriting prompt exists (issue #9: `BulletRewriter`,
+LLM-only). No match scoring or PDF template yet (issues #10-#18 onward, minus #4/#5/#7/#8/#9).
+The project is named `resume-ats-optimizer`, a hosted, multi-user tool for
 optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored resume as a downloadable PDF.
 
@@ -121,9 +122,18 @@ Otherwise standard Rails 8 conventions.
   `Data.define`) with `matched_required_skills`/`missing_required_skills`/etc. `requirements` is
   the plain hash `JobDescription::Extractor` returns — not persisted, so nothing new to store or
   relate to a `Resume` yet.
-- As the remaining pipeline issues (#9-#18) land, expect: bullet rewriting/match scoring LLM
-  calls and PDF rendering as Solid Queue jobs (`app/jobs`), and Turbo-driven views per pipeline
-  stage (`app/views`, `app/controllers`).
+- **`app/services/bullet_rewriter.rb`** (issue #9): `BulletRewriter.call(bullets:,
+  job_description_text:, chat: RubyLLM.chat)` rephrases an array of resume bullets to pick up
+  the job posting's terminology/keywords, one rewritten bullet per input bullet, same order.
+  Unlike `Comparison` this *is* an LLM call (rewording is generative; deciding what counts as a
+  match isn't) — the prompt explicitly forbids adding any skill/achievement/metric not already
+  in the original bullet, and `call` raises `MismatchedBulletCountError` if the response doesn't
+  come back 1:1, rather than silently misaligning rewrites to the wrong experience. Deeper
+  automated hallucination safeguards are issue #11, not this one. Returns a plain array, no
+  persistence — same pattern as `JobDescription::Extractor`/`Comparison`.
+- As the remaining pipeline issues (#10-#18) land, expect: match scoring and PDF rendering as
+  Solid Queue jobs (`app/jobs`), and Turbo-driven views per pipeline stage (`app/views`,
+  `app/controllers`).
 
 ## Next steps for Claude
 
