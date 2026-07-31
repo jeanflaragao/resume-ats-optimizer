@@ -4,15 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-The Rails app is scaffolded (issue #3) per the Stack decided in issue #1, the CV data model
+The Rails app is scaffolded (issue #3) per the Stack decided in issue #1, the resume data model
 exists (issue #5: `Resume`/`Experience`/`Education` — originally named `Cv`, renamed to `Resume`
-for clarity), CV import/parsing exists (issue #4: `Resume::Import` with LLM and deterministic
-extraction strategies), and the job-description requirement extraction prompt exists (issue #7:
-`JobDescription::Extractor`, LLM-only — pasted text, no file upload or deterministic strategy).
-No CV/job comparison, bullet rewriting, match scoring, or PDF template yet (issues #8-#18
-onward, minus #4/#5/#7). The project is named `resume-ats-optimizer`, a hosted, multi-user tool
-for optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
-paste a job description, and get back an ATS-friendly, tailored CV as a downloadable PDF.
+for clarity), resume import/parsing exists (issue #4: `Resume::Import` with LLM and
+deterministic extraction strategies), the job-description requirement extraction prompt exists
+(issue #7: `JobDescription::Extractor`, LLM-only — pasted text, no file upload or deterministic
+strategy), and resume/job comparison exists (issue #8: `Comparison`, deterministic — see Project
+layout below). No bullet rewriting, match scoring, or PDF template yet (issues #9-#18 onward,
+minus #4/#5/#7/#8). The project is named `resume-ats-optimizer`, a hosted, multi-user tool for
+optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
+paste a job description, and get back an ATS-friendly, tailored resume as a downloadable PDF.
 
 ## Stack
 
@@ -33,7 +34,7 @@ paste a job description, and get back an ATS-friendly, tailored CV as a download
   requirement extraction and bullet rewriting. Chosen over a thin API wrapper because it can
   persist prompt/response pairs against ActiveRecord, which the anti-hallucination safeguard
   tests need to inspect.
-- **PDF generation**: Prawn (pure Ruby, programmatic), not Grover/Puppeteer. The required CV
+- **PDF generation**: Prawn (pure Ruby, programmatic), not Grover/Puppeteer. The required resume
   template is deliberately simple — no tables, columns, or images, standard fonts — so
   Prawn's flow layout is sufficient and avoids bundling headless Chrome into the Kamal image.
 - **LinkedIn export parsing**: two selectable strategies (issue #4) — an LLM extractor that sends
@@ -110,10 +111,19 @@ Otherwise standard Rails 8 conventions.
   of using `with:`. `JobDescription::ExtractionSchema` defines the shape it returns: `title`,
   `required_skills[]`, `preferred_skills[]`, `keywords[]` (catch-all for ATS-relevant terms —
   tools, certifications, methodologies — not already captured as a skill). No persistence model
-  yet; that's expected once comparison (issue #8) needs to store/relate results to a `Resume`.
-- As the remaining pipeline issues (#8-#18) land, expect: CV/job comparison and PDF rendering as
-  Solid Queue jobs (`app/jobs`), and Turbo-driven views per pipeline stage (`app/views`,
-  `app/controllers`).
+  yet — extracted requirements are passed straight into `Comparison` (below) rather than stored.
+- **`app/services/comparison.rb`** (issue #8): `Comparison.call(resume:, requirements:)` is a
+  plain, deterministic (non-LLM) Ruby object — see the Stack section's rationale for keeping
+  match logic hallucination-free. It sorts each of `requirements`'s `required_skills[]`,
+  `preferred_skills[]`, and `keywords[]` into matched/missing based on a case-insensitive,
+  word-boundary match (so "Go" doesn't false-positive against "Google") against the resume's
+  `skills`, `summary`, and every experience's `bullets`. Returns a `Comparison::Result` (a
+  `Data.define`) with `matched_required_skills`/`missing_required_skills`/etc. `requirements` is
+  the plain hash `JobDescription::Extractor` returns — not persisted, so nothing new to store or
+  relate to a `Resume` yet.
+- As the remaining pipeline issues (#9-#18) land, expect: bullet rewriting/match scoring LLM
+  calls and PDF rendering as Solid Queue jobs (`app/jobs`), and Turbo-driven views per pipeline
+  stage (`app/views`, `app/controllers`).
 
 ## Next steps for Claude
 
