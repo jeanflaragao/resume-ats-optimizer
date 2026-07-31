@@ -5,10 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project status
 
 The Rails app is scaffolded (issue #3) per the Stack decided in issue #1, the CV data model
-exists (issue #5: `Cv`/`Experience`/`Education`), and CV import/parsing exists (issue #4:
-`Cv::Import` with LLM and deterministic extraction strategies). No job-description prompts or PDF
-template yet (issues #6-#18 onward, minus #4/#5). The project is named `resume-ats-optimizer`, a
-hosted, multi-user tool
+exists (issue #5: `Cv`/`Experience`/`Education`), CV import/parsing exists (issue #4:
+`Cv::Import` with LLM and deterministic extraction strategies), and the job-description
+requirement extraction prompt exists (issue #7: `JobDescription::Extractor`, LLM-only — pasted
+text, no file upload or deterministic strategy). No CV/job comparison, bullet rewriting, match
+scoring, or PDF template yet (issues #8-#18 onward, minus #4/#5/#7). The project is named
+`resume-ats-optimizer`, a hosted, multi-user tool
 for optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored CV as a downloadable PDF.
 
@@ -99,9 +101,16 @@ Otherwise standard Rails 8 conventions.
     shaped like the normalized hash above.
   - Note: `config/initializers/ruby_llm.rb` has `require "ruby_llm/schema"` — the schema DSL
     isn't auto-required by the `ruby_llm` gem itself.
-- As the remaining pipeline issues (#6-#18) land, expect: job-description/comparison LLM calls
-  and PDF rendering as Solid Queue jobs (`app/jobs`), and Turbo-driven views per pipeline stage
-  (`app/views`, `app/controllers`).
+- **`app/services/job_description/`** (issue #7): `JobDescription::Extractor.call(text:, chat:
+  RubyLLM.chat)` pulls ATS-relevant requirements out of a pasted job description — no file
+  upload, so unlike `Cv::Extractors::Llm` it embeds the text directly in the prompt instead of
+  using `with:`. `JobDescription::ExtractionSchema` defines the shape it returns: `title`,
+  `required_skills[]`, `preferred_skills[]`, `keywords[]` (catch-all for ATS-relevant terms —
+  tools, certifications, methodologies — not already captured as a skill). No persistence model
+  yet; that's expected once comparison (issue #8) needs to store/relate results to a `Cv`.
+- As the remaining pipeline issues (#8-#18) land, expect: CV/job comparison and PDF rendering as
+  Solid Queue jobs (`app/jobs`), and Turbo-driven views per pipeline stage (`app/views`,
+  `app/controllers`).
 
 ## Next steps for Claude
 
