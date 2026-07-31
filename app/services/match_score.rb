@@ -3,6 +3,9 @@
 # keywords least, reflecting how much each category actually matters to
 # whether a resume is a good fit for the job.
 class MatchScore
+  # The ordering (required > preferred > keywords) is intentional. The exact
+  # magnitudes (3/2/1) are an initial heuristic guess, not derived from any
+  # data — a candidate for tuning once real usage/feedback exists.
   WEIGHTS = { required_skills: 3, preferred_skills: 2, keywords: 1 }.freeze
 
   def self.call(comparison:)
