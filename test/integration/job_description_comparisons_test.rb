@@ -24,6 +24,17 @@ class JobDescriptionComparisonsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "Not enough required/preferred skills or keywords"
   end
 
+  test "a job description text over MAX_JOB_DESCRIPTION_LENGTH re-renders the resume's show page with an error" do
+    resume = upload_resume
+    oversized_text = "a" * (ApplicationController::MAX_JOB_DESCRIPTION_LENGTH + 1)
+
+    post resume_job_description_path(resume), params: { job_description_text: oversized_text }
+
+    assert_response :unprocessable_entity
+    assert_includes response.body, "too long"
+    assert_not_includes response.body, "Match results"
+  end
+
   test "a job description can only be submitted against a resume owned by the current session" do
     resume = upload_resume
 
