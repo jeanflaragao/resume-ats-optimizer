@@ -4,6 +4,8 @@
 # against "Google" or "Django".
 module WordBoundaryMatchable
   def word_boundary_match?(term, text)
+    return false if term.blank?
+
     pattern = /(?<![[:alnum:]])#{Regexp.escape(term.downcase)}(?![[:alnum:]])/
     text.downcase.match?(pattern)
   end

@@ -80,7 +80,10 @@ class Resume::Extractors::PdfRegex
     in_bullets = false
 
     finalize = lambda do
-      entries << build_entry(header, date_line, bullets, kind) if header.any?
+      if header.any?
+        entry = build_entry(header, date_line, bullets, kind)
+        entries << entry if entry_required_field_present?(entry, kind)
+      end
       header = []
       date_line = nil
       bullets = []
@@ -107,6 +110,14 @@ class Resume::Extractors::PdfRegex
 
   def bullet_line?(line)
     BULLET_PREFIX.match?(line)
+  end
+
+  # A one-line header (title only, no company line before the date range)
+  # leaves header[1] nil - skip building an entry Resume::Import's create!
+  # would reject anyway, rather than emitting an invalid hash.
+  def entry_required_field_present?(entry, kind)
+    required_field = kind == :experience ? entry["company"] : entry["school"]
+    required_field.present?
   end
 
   def build_entry(header, date_line, bullets, kind)

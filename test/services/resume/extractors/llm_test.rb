@@ -56,6 +56,39 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     assert_includes log_output, "Wonka Industries"
   end
 
+  test "drops a whole experience entry when its company is blank" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge(
+      "experiences" => [ base_experience.merge("company" => "") ]
+    ))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_equal [], result["experiences"]
+    assert_includes log_output, "required field blank"
+  end
+
+  test "drops a whole experience entry when its title is nil" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge(
+      "experiences" => [ base_experience.merge("title" => nil) ]
+    ))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_equal [], result["experiences"]
+    assert_includes log_output, "required field blank"
+  end
+
+  test "drops a whole education entry when its school is blank" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge(
+      "educations" => [ { "school" => "", "degree" => "B.S. Computer Science", "field_of_study" => nil, "starts_on" => nil, "ends_on" => nil } ]
+    ))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_equal [], result["educations"]
+    assert_includes log_output, "required field blank"
+  end
+
   test "drops only a fabricated bullet, keeping real ones from the same experience" do
     fake_chat = FakeChat.new(base_extraction.deep_merge(
       "experiences" => [ base_experience.merge("bullets" => [ "Led migration to microservices", "Increased revenue by 200%" ]) ]
