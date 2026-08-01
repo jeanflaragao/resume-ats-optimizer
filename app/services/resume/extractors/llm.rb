@@ -40,6 +40,7 @@ require "pdf/reader"
 # sides).
 class Resume::Extractors::Llm
   include WordBoundaryMatchable
+  include RedactedTokenHint
 
   BULLET_MIN_TOKEN_COVERAGE = 0.9
   SUMMARY_MIN_TOKEN_COVERAGE = 0.75
@@ -77,7 +78,7 @@ class Resume::Extractors::Llm
   def verify(data)
     {
       "name" => verified_verbatim_field(data["name"], "name"),
-      "email" => verified_verbatim_field(data["email"], "email", log_value: false),
+      "email" => verified_verbatim_field(data["email"], "email"),
       "phone" => verified_phone(data["phone"]),
       "summary" => verified_summary(data["summary"]),
       "skills" => verified_skills(Array(data["skills"])),
@@ -92,7 +93,8 @@ class Resume::Extractors::Llm
     result = fidelity_check(summary, SUMMARY_MIN_TOKEN_COVERAGE)
     return summary if result.passed
 
-    warn_drop("summary", summary, result.unverifiable_tokens.join(", "))
+    warn_drop("summary", "unverifiable tokens: #{result.unverifiable_tokens.size} tokens",
+              token_info: redacted_token_hint(result.unverifiable_tokens))
     nil
   end
 
@@ -100,7 +102,7 @@ class Resume::Extractors::Llm
     skills.select do |skill|
       next true if word_boundary_match?(skill, source_text)
 
-      warn_drop("skill", skill, "not found in source text")
+      warn_drop("skill", "not found in source text")
       false
     end
   end
@@ -110,12 +112,12 @@ class Resume::Extractors::Llm
     title = experience["title"]
 
     if company.blank? || title.blank?
-      warn_drop("experience entry", "company #{company.inspect} / title #{title.inspect}", "required field blank")
+      warn_drop("experience entry", "required field blank")
       return nil
     end
 
     unless word_boundary_match?(company.to_s, source_text) && word_boundary_match?(title.to_s, source_text)
-      warn_drop("experience entry", "company #{company.inspect} / title #{title.inspect}", "not found in source text")
+      warn_drop("experience entry", "not found in source text")
       return nil
     end
 
@@ -131,12 +133,12 @@ class Resume::Extractors::Llm
     school = education["school"]
 
     if school.blank?
-      warn_drop("education entry", "school #{school.inspect}", "required field blank")
+      warn_drop("education entry", "required field blank")
       return nil
     end
 
     unless word_boundary_match?(school.to_s, source_text)
-      warn_drop("education entry", "school #{school.inspect}", "not found in source text")
+      warn_drop("education entry", "not found in source text")
       return nil
     end
 
@@ -146,11 +148,11 @@ class Resume::Extractors::Llm
     )
   end
 
-  def verified_verbatim_field(value, field_name, log_value: true)
+  def verified_verbatim_field(value, field_name)
     return value if value.blank?
     return value if word_boundary_match?(value, source_text)
 
-    warn_drop(field_name, value, "not found in source text", log_value: log_value)
+    warn_drop(field_name, "not found in source text")
     nil
   end
 
@@ -162,7 +164,7 @@ class Resume::Extractors::Llm
     digits = phone.scan(DIGITS_PATTERN).join
     return phone if digits.present? && source_digits.include?(digits)
 
-    warn_drop("phone", phone, "not found in source text", log_value: false)
+    warn_drop("phone", "not found in source text")
     nil
   end
 
@@ -176,7 +178,7 @@ class Resume::Extractors::Llm
     year = date_value[YEAR_PATTERN, 1]
     return date_value if year && source_text.include?(year)
 
-    warn_drop(field_name, date_value, "year not found in source text")
+    warn_drop(field_name, "year not found in source text")
     nil
   end
 
@@ -185,7 +187,8 @@ class Resume::Extractors::Llm
       result = fidelity_check(bullet, BULLET_MIN_TOKEN_COVERAGE)
       next bullet if result.passed
 
-      warn_drop("bullet #{index + 1}", bullet, result.unverifiable_tokens.join(", "))
+      warn_drop("bullet #{index + 1}", "unverifiable tokens: #{result.unverifiable_tokens.size} tokens",
+                token_info: redacted_token_hint(result.unverifiable_tokens))
       nil
     end
   end
@@ -194,9 +197,9 @@ class Resume::Extractors::Llm
     FidelityCheck.call(candidate_text: candidate_text, source_text: source_text, min_token_coverage: min_token_coverage)
   end
 
-  def warn_drop(field, value, reason, log_value: true)
-    logged_value = log_value ? value.inspect : "[redacted]"
-    Rails.logger.warn("Resume::Extractors::Llm: dropped #{field} #{logged_value} (#{reason})")
+  def warn_drop(field, reason, token_info: nil)
+    token_hint = token_info.present? ? " [#{token_info}]" : ""
+    Rails.logger.warn("Resume::Extractors::Llm: dropped #{field} (#{reason})#{token_hint}")
   end
 
   def source_text

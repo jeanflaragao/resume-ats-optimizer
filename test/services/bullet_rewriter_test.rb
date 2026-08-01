@@ -63,6 +63,39 @@ class BulletRewriterTest < ActiveSupport::TestCase
     assert_includes log_output, "kubernetes"
   end
 
+  test "fidelity-check fallback log does not contain the original bullet text" do
+    original = "Built REST APIs using Kubernetes and reduced latency by 40%"
+    # Large case: 8 significant tokens not in the source — forces the cap to engage (>5).
+    fabricated = "Pioneered quantum blockchain synergies across worldwide enterprise platforms"
+    fake_chat = FakeChat.new({ "bullets" => [ fabricated ] })
+
+    _, log_output = with_captured_log do
+      BulletRewriter.call(bullets: [ original ], job_description_text: "Anything.", chat: fake_chat)
+    end
+
+    assert_includes log_output, "unverifiable"
+    assert_includes log_output, "(+", "expected capped token list with overflow marker"
+    assert_not_includes log_output, original
+    assert_not_includes log_output, fabricated
+    fabricated.split.each_cons(4) do |run|
+      assert_not_includes log_output, run.join(" "), "log must not contain 4-word run: #{run.join(' ')}"
+    end
+
+    # Small case: all tokens fit within the cap — no overflow marker, consecutive-word check is the only guard.
+    small_fabricated = "Pioneered quantum blockchain synergies platforms"
+    fake_chat2 = FakeChat.new({ "bullets" => [ small_fabricated ] })
+
+    _, log2 = with_captured_log do
+      BulletRewriter.call(bullets: [ original ], job_description_text: "Anything.", chat: fake_chat2)
+    end
+
+    assert_not_includes log2, original
+    assert_not_includes log2, small_fabricated
+    small_fabricated.split.each_cons(4) do |run|
+      assert_not_includes log2, run.join(" "), "log must not contain 4-word run: #{run.join(' ')}"
+    end
+  end
+
   test "only falls back the bullet that fails fidelity, keeping the one that passes, in a mixed batch" do
     fake_chat = FakeChat.new({
       "bullets" => [

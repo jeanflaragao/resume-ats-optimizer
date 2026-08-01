@@ -53,7 +53,8 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
 
     assert_equal [], result["experiences"]
-    assert_includes log_output, "Wonka Industries"
+    assert_includes log_output, "experience entry"
+    assert_not_includes log_output, "Wonka Industries"
   end
 
   test "drops a whole experience entry when its company is blank" do
@@ -128,13 +129,14 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     assert_equal "Acme Corp", result["experiences"].first["company"]
   end
 
-  test "drops a fabricated name and logs the raw value" do
+  test "drops a fabricated name without logging the raw value" do
     fake_chat = FakeChat.new(base_extraction.deep_merge("name" => "John Smith"))
 
     result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
 
     assert_nil result["name"]
-    assert_includes log_output, "John Smith"
+    assert_includes log_output, "name"
+    assert_not_includes log_output, "John Smith"
   end
 
   test "drops a fabricated email without logging the raw value" do
@@ -180,6 +182,100 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     result = Resume::Extractors::Llm.call(file_path: json_fixture_path(extracted), chat: fake_chat)
 
     assert_equal extracted, result
+  end
+
+  test "drops a fabricated summary without logging the raw summary text" do
+    # Large case: >5 unverifiable tokens — overflow marker proves the cap is applied.
+    fabricated = "Pioneered groundbreaking quantum blockchain synergies worldwide"
+    fake_chat = FakeChat.new(base_extraction.deep_merge("summary" => fabricated))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_nil result["summary"]
+    assert_includes log_output, "summary"
+    assert_includes log_output, "unverifiable tokens"
+    assert_includes log_output, "(+", "expected capped token list with overflow marker"
+    assert_not_includes log_output, fabricated
+    fabricated.split.each_cons(4) do |run|
+      assert_not_includes log_output, run.join(" "), "log must not contain 4-word run: #{run.join(' ')}"
+    end
+
+    # Small case: all tokens fit within the cap — no overflow marker, consecutive-word check is the only guard.
+    small_fabricated = "Pioneered quantum blockchain synergies platforms"
+    fake_chat2 = FakeChat.new(base_extraction.deep_merge("summary" => small_fabricated))
+
+    _, log2 = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat2) }
+
+    assert_not_includes log2, small_fabricated
+    small_fabricated.split.each_cons(4) do |run|
+      assert_not_includes log2, run.join(" "), "log must not contain 4-word run: #{run.join(' ')}"
+    end
+  end
+
+  test "drops a fabricated bullet without logging the raw bullet text" do
+    # Large case: >5 unverifiable tokens — overflow marker proves the cap is applied.
+    fabricated = "Pioneered quantum blockchain synergies across worldwide enterprise platforms"
+    fake_chat = FakeChat.new(base_extraction.deep_merge(
+      "experiences" => [ base_experience.merge("bullets" => [ fabricated ]) ]
+    ))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_equal [], result["experiences"].first["bullets"]
+    assert_includes log_output, "bullet"
+    assert_includes log_output, "unverifiable tokens"
+    assert_includes log_output, "(+", "expected capped token list with overflow marker"
+    assert_not_includes log_output, fabricated
+    fabricated.split.each_cons(4) do |run|
+      assert_not_includes log_output, run.join(" "), "log must not contain 4-word run: #{run.join(' ')}"
+    end
+
+    # Small case: all tokens fit within the cap — no overflow marker, consecutive-word check is the only guard.
+    small_fabricated = "Pioneered quantum blockchain synergies platforms"
+    fake_chat2 = FakeChat.new(base_extraction.deep_merge(
+      "experiences" => [ base_experience.merge("bullets" => [ small_fabricated ]) ]
+    ))
+
+    _, log2 = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat2) }
+
+    assert_not_includes log2, small_fabricated
+    small_fabricated.split.each_cons(4) do |run|
+      assert_not_includes log2, run.join(" "), "log must not contain 4-word run: #{run.join(' ')}"
+    end
+  end
+
+  test "drops a fabricated skill without logging the raw skill value" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge("skills" => [ "Ruby", "QuantumFramework" ]))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_equal [ "Ruby" ], result["skills"]
+    assert_includes log_output, "skill"
+    assert_not_includes log_output, "QuantumFramework"
+  end
+
+  test "drops a fabricated location without logging the raw location value" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge(
+      "experiences" => [ base_experience.merge("location" => "Mars Colony Seven") ]
+    ))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_nil result["experiences"].first["location"]
+    assert_includes log_output, "location"
+    assert_not_includes log_output, "Mars Colony Seven"
+  end
+
+  test "drops a fabricated start date without logging the raw date string" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge(
+      "experiences" => [ base_experience.merge("starts_on" => "1999-05") ]
+    ))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_nil result["experiences"].first["starts_on"]
+    assert_includes log_output, "starts_on"
+    assert_not_includes log_output, "1999-05"
   end
 
   test "raises a clear error when the file doesn't exist" do

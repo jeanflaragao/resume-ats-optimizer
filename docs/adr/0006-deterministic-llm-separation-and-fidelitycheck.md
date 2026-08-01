@@ -60,8 +60,7 @@ in the source.
   `FidelityCheck`/`WordBoundaryMatchable` gate, or (for `JobDescription::Extractor`, which
   extracts requirements from a job posting, not from the user's own claimed experience) not
   subject to the same hallucination risk since there's no "invented experience" possible there.
-- `email`/`phone` field verification (added in issue #41) logs drops without the raw value —
-  field name/reason only — since those two fields are PII, unlike every other verified field.
+- ~~`email`/`phone` field verification (added in issue #41) logs drops without the raw value — field name/reason only — since those two fields are PII, unlike every other verified field.~~ **Superseded in part by [ADR-0015](0015-uniform-log-redaction-for-resume-fields.md) — the PII carve-out was too narrow; issue #58 extended uniform redaction to all extracted resume fields.**
 - Known, accepted limitation: `FidelityCheck` is lexical, not semantic — it can't catch
   hallucination that introduces no new lexical tokens (e.g. reinterpreting an existing number's
   meaning without changing the digits). This trade-off was accepted deliberately in favor of

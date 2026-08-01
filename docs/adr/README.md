@@ -22,3 +22,4 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0012 | Wire Solid Cache as the production cache store | Accepted | [0012-wire-solid-cache-as-production-cache-store.md](0012-wire-solid-cache-as-production-cache-store.md) |
 | 0013 | Enable CSRF forgery protection for system tests only | Accepted | [0013-enable-forgery-protection-in-system-tests.md](0013-enable-forgery-protection-in-system-tests.md) |
 | 0014 | Convert JobDescriptions/Previews/Downloads to turbo_stream responses | Accepted | [0014-convert-post-controllers-to-turbo-stream-responses.md](0014-convert-post-controllers-to-turbo-stream-responses.md) |
+| 0015 | Treat every extracted resume field as personal data; redact all values from log output | Accepted | [0015-uniform-log-redaction-for-resume-fields.md](0015-uniform-log-redaction-for-resume-fields.md) |
