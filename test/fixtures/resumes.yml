@@ -1,3 +1,6 @@
 one:
+  name: Jordan Rivera
+  email: jordan.rivera@example.com
+  phone: "555-123-4567"
   summary: Senior backend engineer with 8 years of experience.
   skills: ["Ruby", "Rails", "PostgreSQL"]
