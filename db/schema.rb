@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_31_231502) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_01_025639) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -45,11 +45,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_31_231502) do
     t.datetime "created_at", null: false
     t.string "email"
     t.string "name"
+    t.string "owner_token"
     t.string "phone"
     t.jsonb "skills", default: [], null: false
     t.string "source"
     t.text "summary"
     t.datetime "updated_at", null: false
+    t.index ["owner_token"], name: "index_resumes_on_owner_token"
   end
 
   add_foreign_key "educations", "resumes"

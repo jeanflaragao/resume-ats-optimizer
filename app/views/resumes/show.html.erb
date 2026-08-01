@@ -1,0 +1,11 @@
+<div class="max-w-xl mx-auto w-full">
+  <h1 class="text-2xl font-semibold mb-4">Resume uploaded</h1>
+  <p class="text-gray-800 font-medium mb-2"><%= @resume.name.presence || "Untitled resume" %></p>
+  <p class="text-gray-600 mb-6">
+    Parsed <%= pluralize(@resume.experiences.size, "work experience") %> and
+    <%= pluralize(@resume.educations.size, "education entry", "education entries") %>.
+  </p>
+  <p class="text-gray-500 text-sm">
+    Next: tailoring this resume against a job description isn't built yet (see issues #16-#18).
+  </p>
+</div>

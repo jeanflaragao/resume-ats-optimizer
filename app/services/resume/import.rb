@@ -11,23 +11,24 @@ class Resume::Import
     "regex" => { "pdf" => Resume::Extractors::PdfRegex, "json" => Resume::Extractors::JsonMapper }
   }.freeze
 
-  def self.call(file:, strategy:)
-    new(file: file, strategy: strategy).call
+  def self.call(file:, strategy:, chat: LlmCallGuard.chat)
+    new(file: file, strategy: strategy, chat: chat).call
   end
 
-  def initialize(file:, strategy:)
+  def initialize(file:, strategy:, chat:)
     @file = file
     @strategy = strategy
+    @chat = chat
   end
 
   def call
-    data = extractor.call(file_path: path)
+    data = extractor == Resume::Extractors::Llm ? extractor.call(file_path: path, chat: chat) : extractor.call(file_path: path)
     persist(data)
   end
 
   private
 
-  attr_reader :file, :strategy
+  attr_reader :file, :strategy, :chat
 
   def extractor
     @extractor ||= begin

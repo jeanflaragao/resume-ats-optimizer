@@ -8,7 +8,7 @@ class Resume::Optimization
   Result = Data.define(:name, :email, :phone, :summary, :skills, :experiences, :educations)
   Experience = Data.define(:company, :title, :location, :starts_on, :ends_on, :bullets)
 
-  def self.call(resume:, job_description_text:, chat: RubyLLM.chat)
+  def self.call(resume:, job_description_text:, chat: LlmCallGuard.chat)
     new(resume: resume, job_description_text: job_description_text, chat: chat).call
   end
 

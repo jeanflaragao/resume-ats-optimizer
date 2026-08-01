@@ -47,7 +47,35 @@ class Resume::ImportTest < ActiveSupport::TestCase
     end
   end
 
+  test "forwards a custom chat: to the Llm extractor when strategy is llm" do
+    fake_chat = FakeChat.new({
+      "name" => "Jane Doe", "email" => nil, "phone" => nil, "summary" => nil,
+      "skills" => [], "experiences" => [], "educations" => []
+    })
+
+    resume = Resume::Import.call(file: fixture_path(valid_json), strategy: "llm", chat: fake_chat)
+
+    assert_equal "llm", resume.source
+    assert_equal "Jane Doe", resume.name
+  end
+
+  test "does not forward chat: to extractors that don't accept it" do
+    resume = Resume::Import.call(file: fixture_path(valid_json), strategy: "regex", chat: FakeChat.new({}))
+
+    assert_equal "json_mapper", resume.source
+  end
+
   private
+
+  FakeChat = Struct.new(:content_to_return) do
+    def with_schema(_schema)
+      self
+    end
+
+    def ask(_prompt, with: nil)
+      Struct.new(:content).new(content_to_return)
+    end
+  end
 
   def valid_json
     {

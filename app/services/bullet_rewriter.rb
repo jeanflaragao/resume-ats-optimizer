@@ -29,7 +29,7 @@ class BulletRewriter
     - Return exactly one rewritten bullet per input bullet, in the same order.
   PROMPT
 
-  def self.call(bullets:, job_description_text:, chat: RubyLLM.chat)
+  def self.call(bullets:, job_description_text:, chat: LlmCallGuard.chat)
     new(bullets: bullets, job_description_text: job_description_text, chat: chat).call
   end
 

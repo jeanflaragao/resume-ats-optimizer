@@ -56,7 +56,7 @@ class Resume::Extractors::Llm
     field is absent, omit it rather than guessing.
   PROMPT
 
-  def self.call(file_path:, chat: RubyLLM.chat)
+  def self.call(file_path:, chat: LlmCallGuard.chat)
     new(file_path: file_path, chat: chat).call
   end
 

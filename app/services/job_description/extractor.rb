@@ -8,7 +8,7 @@ class JobDescription::Extractor
     aren't mentioned.
   PROMPT
 
-  def self.call(text:, chat: RubyLLM.chat)
+  def self.call(text:, chat: LlmCallGuard.chat)
     response = chat.with_schema(JobDescription::ExtractionSchema).ask("#{INSTRUCTIONS}\nJob description:\n#{text}")
     response.content
   end

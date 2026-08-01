@@ -20,8 +20,12 @@ the PDF template has real data for an identity header — extracted via the LLM 
 `JsonMapper`, not yet via `PdfRegex`), the ATS-friendly PDF template exists (issue #12:
 `Resume::Pdf`, deterministic — Prawn, see Project layout below), and PDF generation from
 optimized (bullet-rewritten) resume data exists (issue #13: `Resume::Optimization`, LLM-only via
-`BulletRewriter`, non-persisting — see Project layout below). Remaining pipeline issues (#14-#18)
-not yet done. The project is named
+`BulletRewriter`, non-persisting — see Project layout below), and the LinkedIn export upload form
+exists (issue #15: `ResumesController`/`app/views/resumes` — the app's first controller/routes/
+views, plus a `LlmCallGuard` safety net added as a prerequisite so local/manual testing can't
+trigger real Anthropic API calls by accident, and a placeholder session-based `owner_token` on
+`Resume` since real auth doesn't exist yet; see Project layout below). Remaining pipeline issues
+(#16-#18) not yet done. The project is named
 `resume-ats-optimizer`, a hosted, multi-user tool for
 optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored resume as a downloadable PDF.
@@ -109,6 +113,18 @@ No Postgres or `libpq` is required on the host — everything runs through Docke
 (`docker-compose.yml` + `Dockerfile.dev`, dev-only; production still builds from the root
 `Dockerfile` via Kamal per `config/deploy.yml`).
 
+- Copy `.env.example` to `.env` and fill in `ANTHROPIC_API_KEY` before running anything that
+  calls the LLM (extraction, bullet rewriting). `.env` is gitignored (`.gitignore`'s `/.env*`
+  rule, with `!/.env.example` as the one committed exception) and read automatically by
+  `docker compose` at the project root; `docker-compose.yml`'s `web` service passes it through
+  to the container as `ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}` — a reference, never a literal
+  key — for `config/initializers/ruby_llm.rb` to pick up. Without it, LLM-calling code raises/
+  fails auth; everything else (deterministic services, PDF rendering) works fine without a key.
+  `.env.example` also documents `ENABLE_REAL_LLM_CALLS` (default `false`) and
+  `MAX_LLM_CALLS_PER_DAY` (default `10`) — see `LlmCallGuard` in Project layout below. Leave
+  `ENABLE_REAL_LLM_CALLS` unset for local/manual testing (including through the browser); every
+  LLM call site returns a labeled stub instead of hitting the real API. Only set it to `true`
+  (with a real `ANTHROPIC_API_KEY`) to deliberately test real extraction/rewrite quality.
 - `docker compose run --rm web bundle install` — install/update gems (writes `Gemfile.lock`
   back to the host, runs as a non-root user matching your host UID so files aren't root-owned).
 - `docker compose run --rm web bin/rails db:prepare` — create/migrate dev & test databases.
@@ -133,8 +149,14 @@ Otherwise standard Rails 8 conventions.
   (`school` required) each `belongs_to :resume`. Bullets and skills are jsonb string arrays
   rather than their own tables — unstructured lists don't need independent identity yet;
   structured fields (`company`, `title`, `school`, dates) are real columns. No `User`/auth model
-  exists yet, so `Resume` has no owner — that's a follow-on migration whenever auth is
-  implemented, not part of the resume schema itself. Table/model were originally named
+  exists yet, so `Resume` has a nullable `owner_token:string` (indexed; issue #15) instead of a
+  real owner — a placeholder populated from `ApplicationController#current_owner_token` (an
+  opaque per-browser-session token, `session[:owner_token] ||= SecureRandom.hex(32)`) rather than
+  a `user_id` FK. Existing service-object/console usage that creates a `Resume` with no HTTP
+  session context (tests, `Resume::Import` called directly) leaves it `nil`, which is fine — it's
+  only enforced at the controller layer (`ResumesController#show` scopes by it). Replace with a
+  real `user_id` FK once the Rails 8 auth generator lands; this was never meant to be permanent.
+  Table/model were originally named
   `Cv`/`cvs`, renamed to `Resume`/`resumes` via a dedicated `rename_table`/`rename_column`
   migration (not by editing the original migrations) since they'd already run in dev.
 - **`app/services/resume/`**: resume import/extraction, all under the `Resume::` namespace
@@ -149,7 +171,8 @@ Otherwise standard Rails 8 conventions.
     `educations[]`) that every extractor returns and `Import` consumes.
   - `Extractors::Llm` — sends the file directly to Claude (`chat.with_schema(...).ask(prompt,
     with: file_path)`), works unmodified for PDF or JSON. Takes `chat:` as a keyword arg
-    (default `RubyLLM.chat`) so tests can inject a fake instead of hitting the network. Since
+    (default `LlmCallGuard.chat`, see below; tests inject a hand-rolled fake directly instead).
+    Since
     issue #11, the prompt alone isn't trusted: every field is verified against the file's own
     text before being returned (see `FidelityCheck` below) — unverified bullets/skills/dates are
     dropped/nulled in place, an unverified `company`/`title`/`school` drops the whole
@@ -171,7 +194,7 @@ Otherwise standard Rails 8 conventions.
   - Note: `config/initializers/ruby_llm.rb` has `require "ruby_llm/schema"` — the schema DSL
     isn't auto-required by the `ruby_llm` gem itself.
 - **`app/services/job_description/`** (issue #7): `JobDescription::Extractor.call(text:, chat:
-  RubyLLM.chat)` pulls ATS-relevant requirements out of a pasted job description — no file
+  LlmCallGuard.chat)` pulls ATS-relevant requirements out of a pasted job description — no file
   upload, so unlike `Resume::Extractors::Llm` it embeds the text directly in the prompt instead
   of using `with:`. `JobDescription::ExtractionSchema` defines the shape it returns: `title`,
   `required_skills[]`, `preferred_skills[]`, `keywords[]` (catch-all for ATS-relevant terms —
@@ -202,7 +225,7 @@ Otherwise standard Rails 8 conventions.
   services" rule; known limitation, accepted: can't catch purely semantic hallucination that
   introduces no new lexical tokens.
 - **`app/services/bullet_rewriter.rb`** (issue #9, hallucination safeguard added in #11):
-  `BulletRewriter.call(bullets:, job_description_text:, chat: RubyLLM.chat)` rephrases an array
+  `BulletRewriter.call(bullets:, job_description_text:, chat: LlmCallGuard.chat)` rephrases an array
   of resume bullets to pick up the job posting's terminology/keywords, one rewritten bullet per
   input bullet, same order. Unlike `Comparison`/`FidelityCheck` this *is* an LLM call (rewording
   is generative; deciding what counts as a match isn't) — the prompt explicitly forbids adding
@@ -233,7 +256,7 @@ Otherwise standard Rails 8 conventions.
   `ActiveRecord`-specific calls — which is what lets `Resume::Optimization` (below) feed it a
   non-persisted value object with zero changes to this file.
 - **`app/services/resume/optimization.rb`** (issue #13): `Resume::Optimization.call(resume:,
-  job_description_text:, chat: RubyLLM.chat)` bridges `BulletRewriter` (#9) and `Resume::Pdf`
+  job_description_text:, chat: LlmCallGuard.chat)` bridges `BulletRewriter` (#9) and `Resume::Pdf`
   (#12) — runs `BulletRewriter` once per experience against `job_description_text` and returns a
   `Resume::Optimization::Result` (a `Data.define` mirroring the exact attribute names
   `Resume::Pdf` reads off a real `Resume`/`Experience`, so `Resume::Pdf.call(resume:
@@ -245,8 +268,40 @@ Otherwise standard Rails 8 conventions.
   ends up needing it, rather than guessing at a cache key strategy now. Also not yet wired to a
   Solid Queue job (still called synchronously, like `BulletRewriter`/`JobDescription::Extractor`)
   — that wiring is issue #18's scope, with rate limiting layered on in #22.
-- As the remaining pipeline issues (#14-#18) land, expect: PDF rendering as a Solid Queue job
-  (`app/jobs`), and Turbo-driven views per pipeline stage (`app/views`, `app/controllers`).
+- **`app/services/llm_call_guard.rb`** (added as a prerequisite to issue #15): `LlmCallGuard.chat`
+  is the shared `chat:` default for every LLM call site above (`Resume::Extractors::Llm`,
+  `BulletRewriter`, `JobDescription::Extractor`, `Resume::Optimization`'s passthrough), replacing
+  their previous bare `RubyLLM.chat` default. A blunt, process-wide stopgap against accidental
+  real Anthropic API usage during local/manual testing — not a replacement for real rate
+  limiting (see issue #22, and [issue #45](https://github.com/jeanflaragao/resume-ats-optimizer/issues/45)
+  which tracks folding this into #22 once it lands):
+  - `ENABLE_REAL_LLM_CALLS` (default `false`): when false, `.chat` returns a `StubChat` that
+    duck-types `with_schema(schema).ask(prompt, with: nil).content` and returns clearly-labeled
+    canned data per schema class, never touching the network.
+  - `MAX_LLM_CALLS_PER_DAY` (default `10`): once real calls are enabled, `.chat` counts them via
+    `Rails.cache` (a day-scoped key, so it resets automatically at midnight) and raises
+    `LlmCallGuard::DailyLimitExceededError` rather than proceeding once the cap is hit.
+  - Test env's `cache_store` is `:null_store` (see `config/environments/test.rb`), which no-ops
+    `increment` — `test/services/llm_call_guard_test.rb` swaps in a real `MemoryStore` for the
+    cap-counting tests rather than relying on the app's configured store.
+- **`app/controllers/resumes_controller.rb`** + **`app/views/resumes/`** (issue #15, the app's
+  first controller/routes/views): `new`/`create`/`show`. `create` passes the raw multipart
+  upload (`params[:file]`, an `ActionDispatch::Http::UploadedFile`) straight into
+  `Resume::Import.call` — no Active Storage, since the file is fully consumed at import time and
+  nothing downstream ever re-reads it. Strategy is hardcoded to `ResumesController::DEFAULT_STRATEGY
+  ("llm")`, not exposed as a form field — `"regex"` is a lesser-fidelity fallback with no basis
+  for an end user to choose between them. On `ActiveRecord::RecordInvalid` (transactional
+  rollback) or `Resume::Import::UnsupportedFormatError`, re-renders `:new` with
+  `status: :unprocessable_entity` and a flash message rather than a separate error page. `show`
+  scopes by `current_owner_token` (404s otherwise). Routes: `resources :resumes, only: %i[new
+  create show]`, `root "resumes#new"`. Covered by `test/integration/resume_uploads_test.rb`
+  (`ActionDispatch::IntegrationTest`, not a full `ApplicationSystemTestCase` browser test — #15
+  has no Turbo Stream/Stimulus behavior yet to justify one, and running in-process is what lets
+  the happy-path test rely on `LlmCallGuard`'s stub instead of a real API call; revisit this
+  choice once #16/#17 add real async/Turbo Stream behavior worth exercising in-browser).
+- Remaining pipeline issues (#16-#18): expect PDF rendering as a Solid Queue job (`app/jobs` —
+  still doesn't exist), and more Turbo-driven views/controllers per pipeline stage (job
+  description input, preview, download).
 
 ## Next steps for Claude
 
