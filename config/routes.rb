@@ -11,6 +11,7 @@ Rails.application.routes.draw do
 
   resources :resumes, only: %i[new create show] do
     resource :job_description, only: :create
+    resource :preview, only: :create
   end
 
   # Defines the root path route ("/")

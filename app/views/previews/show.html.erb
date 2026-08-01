@@ -1,0 +1,56 @@
+<div class="max-w-xl mx-auto w-full">
+  <h1 class="text-2xl font-semibold mb-4">Optimized resume preview</h1>
+
+  <% if @optimized_resume.name.present? || @optimized_resume.email.present? || @optimized_resume.phone.present? %>
+    <p class="text-gray-800 font-medium"><%= @optimized_resume.name %></p>
+    <p class="text-gray-600 mb-4">
+      <%= [ @optimized_resume.email, @optimized_resume.phone ].select(&:present?).join(" | ") %>
+    </p>
+  <% end %>
+
+  <% if @optimized_resume.summary.present? %>
+    <h2 class="text-lg font-semibold mt-6 mb-2">Summary</h2>
+    <p class="text-gray-700"><%= @optimized_resume.summary %></p>
+  <% end %>
+
+  <% if @optimized_resume.experiences.present? %>
+    <h2 class="text-lg font-semibold mt-6 mb-2">Experience</h2>
+    <% @optimized_resume.experiences.each do |experience| %>
+      <div class="mb-4">
+        <p class="font-medium">
+          <%= [ experience.title, experience.company ].select(&:present?).join(", ") %>
+        </p>
+        <p class="text-sm text-gray-500">
+          <%= [ experience.location, date_range(experience.starts_on, experience.ends_on) ].select(&:present?).join(" | ") %>
+        </p>
+        <ul class="list-disc list-inside text-gray-700">
+          <% Array(experience.bullets).select(&:present?).each do |bullet| %>
+            <li><%= bullet %></li>
+          <% end %>
+        </ul>
+      </div>
+    <% end %>
+  <% end %>
+
+  <% if @optimized_resume.educations.present? %>
+    <h2 class="text-lg font-semibold mt-6 mb-2">Education</h2>
+    <% @optimized_resume.educations.each do |education| %>
+      <div class="mb-4">
+        <p class="font-medium"><%= education.school %></p>
+        <% detail = [ education.degree, education.field_of_study ].select(&:present?).join(", ") %>
+        <p class="text-sm text-gray-500">
+          <%= [ detail, date_range(education.starts_on, education.ends_on) ].select(&:present?).join(" | ") %>
+        </p>
+      </div>
+    <% end %>
+  <% end %>
+
+  <% if Array(@optimized_resume.skills).any?(&:present?) %>
+    <h2 class="text-lg font-semibold mt-6 mb-2">Skills</h2>
+    <p class="text-gray-700"><%= Array(@optimized_resume.skills).select(&:present?).join(", ") %></p>
+  <% end %>
+
+  <p class="text-gray-500 text-sm mt-8">
+    Next: downloading this preview as a PDF isn't built yet (see issue #18).
+  </p>
+</div>

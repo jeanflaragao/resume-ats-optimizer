@@ -27,8 +27,10 @@ trigger real Anthropic API calls by accident, and a placeholder session-based `o
 `Resume` since real auth doesn't exist yet; see Project layout below), and the job description
 input field exists (issue #16: `JobDescriptionsController`, wiring the already-existing
 `JobDescription::Extractor`/`Comparison`/`MatchScore` pipeline to a form on `resumes/show` — see
-Project layout below). Remaining pipeline issues
-(#17-#18) not yet done. The project is named
+Project layout below), and the resume preview screen exists (issue #17: `PreviewsController`,
+wiring the already-existing `Resume::Optimization` to a second button on that same form, plus a
+new `app/views/previews/show.html.erb` — see Project layout below). Remaining pipeline issues
+(#18) not yet done. The project is named
 `resume-ats-optimizer`, a hosted, multi-user tool for
 optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored resume as a downloadable PDF.
@@ -301,7 +303,8 @@ Otherwise standard Rails 8 conventions.
   (`ActionDispatch::IntegrationTest`, not a full `ApplicationSystemTestCase` browser test — #15
   has no Turbo Stream/Stimulus behavior yet to justify one, and running in-process is what lets
   the happy-path test rely on `LlmCallGuard`'s stub instead of a real API call; revisit this
-  choice once #17 adds real async/Turbo Stream behavior worth exercising in-browser).
+  choice once #18 adds real async/Turbo Stream behavior worth exercising in-browser — #17
+  stayed synchronous too, see below).
 - **`app/controllers/job_descriptions_controller.rb`** (issue #16): single `create` action
   wiring the job-description textarea on `resumes/show.html.erb` to the already-existing
   `JobDescription::Extractor` (#7) → `Comparison` (#8) → `MatchScore` (#10) pipeline — none of
@@ -317,9 +320,30 @@ Otherwise standard Rails 8 conventions.
   from `ResumesController#show`'s existing owner-token scoping, now shared by both controllers).
   Covered by `test/integration/job_description_comparisons_test.rb`, same
   `ActionDispatch::IntegrationTest` convention as #15.
-- Remaining pipeline issues (#17-#18): expect PDF rendering as a Solid Queue job (`app/jobs` —
-  still doesn't exist), and more Turbo-driven views/controllers per pipeline stage (preview,
-  download).
+- **`app/controllers/previews_controller.rb`** + **`app/views/previews/show.html.erb`** (issue
+  #17): single `create` action wiring a second submit button on `resumes/show.html.erb`'s
+  job-description form (`formaction`-overridden, same textarea, no duplicate form/JS) to the
+  already-existing `Resume::Optimization` (#13) — unchanged for this issue, including its
+  `chat: LlmCallGuard.chat` default, so previewing goes through the same stub/daily-cap guard as
+  every other LLM call site. `job_description_text` is never persisted here either, for the same
+  reason as #16 — CLAUDE.md's own `Resume::Optimization` entry already anticipated "a future
+  preview-then-download flow re-requesting the same pair" rather than caching, so #18 is expected
+  to independently call `Resume::Optimization` again at download time. Renders a Tailwind HTML
+  template (not an embedded/iframed PDF — cheaper, avoids a wasted Prawn render on every preview,
+  and #18 renders the real PDF anyway) mirroring `Resume::Pdf`'s section order and blank-guarding;
+  a new `ApplicationHelper#date_range` factors out the one bit of formatting logic
+  `Resume::Pdf#date_range` also has, shared between the Experience/Education sections. Stays
+  synchronous (no Solid Queue), consistent with #16 — that wiring remains #18's scope per
+  `Resume::Optimization`'s own doc comment. Routes: `resources :resumes { resource :preview, only:
+  :create }`. Reuses `find_owned_resume!` (#16). Covered by
+  `test/integration/resume_previews_test.rb`, same `ActionDispatch::IntegrationTest` convention —
+  note its happy-path test asserts on `BulletRewriter`'s logged fidelity-check fallback (same
+  technique `test/services/resume/optimization_test.rb` uses) rather than on `LlmCallGuard`'s stub
+  label appearing verbatim, since the stub's label text itself always fails `BulletRewriter`'s own
+  fidelity check and falls back to the original bullet — that fallback, not a bypass, is what
+  proves the real pipeline ran.
+- Remaining pipeline issues (#18): expect PDF rendering as a Solid Queue job (`app/jobs` — still
+  doesn't exist), and a Turbo-driven download flow.
 
 ## Next steps for Claude
 

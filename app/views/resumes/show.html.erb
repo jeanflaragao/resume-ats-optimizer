@@ -14,7 +14,11 @@
   <%= form_with url: resume_job_description_path(@resume), method: :post, class: "flex flex-col gap-4 mb-8" do |form| %>
     <%= form.text_area :job_description_text, value: @job_description_text, rows: 10, required: true,
           class: "border rounded p-2" %>
-    <%= form.submit "Check match", class: "bg-blue-600 text-white rounded px-4 py-2 self-start cursor-pointer" %>
+    <div class="flex gap-2">
+      <%= form.submit "Check match", class: "bg-blue-600 text-white rounded px-4 py-2 cursor-pointer" %>
+      <%= form.button "Preview optimized resume", formaction: resume_preview_path(@resume),
+            class: "bg-gray-700 text-white rounded px-4 py-2 cursor-pointer" %>
+    </div>
   <% end %>
 
   <% if @comparison %>
@@ -63,6 +67,6 @@
   <% end %>
 
   <p class="text-gray-500 text-sm">
-    Next: previewing and downloading the optimized resume isn't built yet (see issues #17-#18).
+    Next: downloading the optimized resume as a PDF isn't built yet (see issue #18).
   </p>
 </div>
