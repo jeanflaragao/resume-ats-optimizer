@@ -11,10 +11,9 @@
     Paste a job posting below to see how this resume matches it.
   </p>
 
-  <%# data: { turbo: false } is a stopgap -- see issue #47, filed after #18's system test
-      caught Turbo Drive rejecting a plain 200 render in response to a POST (it requires
-      either a redirect or a turbo_stream response). Proper fix is converting this to a
-      turbo_stream response, matching CLAUDE.md's Stack section.
+  <%# The "Preview optimized resume" form below still carries data: { turbo: false } -- a
+      stopgap tracked by issue #47, not yet converted to a turbo_stream response (this
+      "Check match" form above was, in #47's first controller conversion).
 
       Two separate forms (not one form with a formaction-overridden second button) because
       Rails' per-form CSRF tokens bind a form's authenticity_token to its own declared action
@@ -22,9 +21,12 @@
       which fails CSRF verification on a real (non-Turbo) POST. This was a real, pre-existing
       bug from #17, only found via manual browser testing in #18 since the test env disables
       forgery protection entirely (config/environments/test.rb). The sync Stimulus controller
-      keeps the second form's hidden field mirroring the visible textarea. %>
+      keeps the second form's hidden field mirroring the visible textarea. This split is kept
+      for both forms even after #47's turbo_stream conversion, since it's still required for
+      the format.html fallback (real non-Turbo POSTs -- JS-disabled browsers, integration
+      tests), which #47 does not remove. %>
   <div data-controller="sync">
-    <%= form_with url: resume_job_description_path(@resume), method: :post, data: { turbo: false },
+    <%= form_with url: resume_job_description_path(@resume), method: :post,
           class: "flex flex-col gap-4 mb-4" do |form| %>
       <%= form.text_area :job_description_text, value: @job_description_text, rows: 10, required: true,
             class: "border rounded p-2", data: { sync_target: "source", action: "input->sync#sync" } %>

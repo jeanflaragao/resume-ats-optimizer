@@ -17,6 +17,16 @@ class ResumeDownloadsTest < ApplicationSystemTestCase
     attach_file "file", path
     click_on "Upload"
 
+    # Whitespace-only satisfies the textarea's HTML5 `required` attribute client-side (it's a
+    # non-empty value) but still fails Rails' server-side `.blank?` check -- this is what lets a
+    # real browser reach JobDescriptionsController's error branch at all, proving the
+    # turbo_stream.update("flash", ...) action (issue #47) actually renders in a live,
+    # Turbo-driven browser, not just in integration tests that never carry real forms.
+    fill_in "job_description_text", with: "   "
+    click_on "Check match"
+
+    assert_text "Please paste a job description."
+
     fill_in "job_description_text", with: "We need a Ruby engineer."
     click_on "Check match"
 
