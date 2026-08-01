@@ -17,8 +17,11 @@ ATS match score calculation exists (issue #10: `MatchScore`, deterministic, buil
 `Resume::Extractors::Llm` surgically drops/nulls unverified fields; see Project layout below), and
 `Resume` has `name`/`email`/`phone` (issue #41, a prerequisite filed ahead of #12 specifically so
 the PDF template has real data for an identity header — extracted via the LLM strategy and
-`JsonMapper`, not yet via `PdfRegex`). No PDF template yet (issues #12-#18 onward, minus
-#4/#5/#7/#8/#9/#10/#11/#41). The project is named
+`JsonMapper`, not yet via `PdfRegex`), the ATS-friendly PDF template exists (issue #12:
+`Resume::Pdf`, deterministic — Prawn, see Project layout below), and PDF generation from
+optimized (bullet-rewritten) resume data exists (issue #13: `Resume::Optimization`, LLM-only via
+`BulletRewriter`, non-persisting — see Project layout below). Remaining pipeline issues (#14-#18)
+not yet done. The project is named
 `resume-ats-optimizer`, a hosted, multi-user tool for
 optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored resume as a downloadable PDF.
@@ -218,7 +221,31 @@ Otherwise standard Rails 8 conventions.
   0 or 100). Deterministic, like `Comparison` — no LLM call, nothing to hallucinate. Required
   skills count 3x toward the score, preferred skills 2x, keywords 1x (`MatchScore::WEIGHTS`),
   reflecting that a missing required skill should hurt the score more than a missing keyword.
-- As the remaining pipeline issues (#12-#18) land, expect: PDF rendering as a Solid Queue job
+- **`app/services/resume/pdf.rb`** (issue #12): `Resume::Pdf.call(resume:)` renders a resume as
+  ATS-friendly PDF bytes (Prawn, single-column, no tables/images) — Header (name/email/phone,
+  degrading gracefully per-field, omitted entirely if all three are blank) → Summary →
+  Experience → Education → Skills, each section skipped outright when its underlying data is
+  blank (`Array(...)`/`.present?` guards) rather than rendering empty whitespace. Accent color
+  (`Resume::Pdf::ACCENT_COLOR`) is reserved for section headers/dividers only. Pagination uses a
+  private `ensure_space` helper (via Prawn's `height_of`/`cursor`) so a section header can't be
+  stranded alone at the bottom of a page. Deliberately duck-typed against `resume` — reads only
+  plain attributes (`name`, `experiences.each { |e| e.company... }`, etc.), no
+  `ActiveRecord`-specific calls — which is what lets `Resume::Optimization` (below) feed it a
+  non-persisted value object with zero changes to this file.
+- **`app/services/resume/optimization.rb`** (issue #13): `Resume::Optimization.call(resume:,
+  job_description_text:, chat: RubyLLM.chat)` bridges `BulletRewriter` (#9) and `Resume::Pdf`
+  (#12) — runs `BulletRewriter` once per experience against `job_description_text` and returns a
+  `Resume::Optimization::Result` (a `Data.define` mirroring the exact attribute names
+  `Resume::Pdf` reads off a real `Resume`/`Experience`, so `Resume::Pdf.call(resume:
+  Resume::Optimization.call(...))` needs no adapter or interface change). Never persists or
+  mutates the source `Resume`/`Experience` records — same resume can be re-optimized for
+  different job descriptions. `educations` pass through untouched (no bullets to rewrite there).
+  No caching/memoization of repeated `resume`+`job_description_text` calls yet (e.g. a future
+  preview-then-download flow re-requesting the same pair) — deferred to whichever of #17/#18/#22
+  ends up needing it, rather than guessing at a cache key strategy now. Also not yet wired to a
+  Solid Queue job (still called synchronously, like `BulletRewriter`/`JobDescription::Extractor`)
+  — that wiring is issue #18's scope, with rate limiting layered on in #22.
+- As the remaining pipeline issues (#14-#18) land, expect: PDF rendering as a Solid Queue job
   (`app/jobs`), and Turbo-driven views per pipeline stage (`app/views`, `app/controllers`).
 
 ## Next steps for Claude
