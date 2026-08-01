@@ -7,6 +7,9 @@ class Resume::Extractors::JsonMapper
     raise InvalidJsonError, "Could not parse #{file_path} as JSON: #{e.message}"
   else
     {
+      "name" => data["name"],
+      "email" => data["email"],
+      "phone" => data["phone"],
       "summary" => data["summary"],
       "skills" => Array(data["skills"]),
       "experiences" => Array(data["experiences"]).map { |experience| map_experience(experience) },

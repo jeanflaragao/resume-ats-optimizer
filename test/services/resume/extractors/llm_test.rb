@@ -19,6 +19,9 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
 
   test "keeps every field when it's genuinely present in the source PDF" do
     extracted = {
+      "name" => "Jane Doe",
+      "email" => "jane@example.com",
+      "phone" => "555-123-4567",
       "summary" => "Product-minded engineer with experience building scalable systems.",
       "skills" => [ "Ruby", "Rails", "PostgreSQL" ],
       "experiences" => [
@@ -92,8 +95,48 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     assert_equal "Acme Corp", result["experiences"].first["company"]
   end
 
+  test "drops a fabricated name and logs the raw value" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge("name" => "John Smith"))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_nil result["name"]
+    assert_includes log_output, "John Smith"
+  end
+
+  test "drops a fabricated email without logging the raw value" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge("email" => "someone-else@example.com"))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_nil result["email"]
+    assert_includes log_output, "email"
+    assert_not_includes log_output, "someone-else@example.com"
+  end
+
+  test "drops a fabricated phone without logging the raw value" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge("phone" => "999-999-9999"))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_nil result["phone"]
+    assert_includes log_output, "phone"
+    assert_not_includes log_output, "999-999-9999"
+  end
+
+  test "keeps a phone number that's only reformatted, not fabricated" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge("phone" => "(555) 123-4567"))
+
+    result = Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat)
+
+    assert_equal "(555) 123-4567", result["phone"]
+  end
+
   test "keeps a fully faithful extraction from a JSON source unchanged" do
     extracted = {
+      "name" => "Jane Doe",
+      "email" => "jane@example.com",
+      "phone" => "555-123-4567",
       "summary" => "Just a summary.",
       "skills" => [ "Go" ],
       "experiences" => [],
@@ -126,6 +169,9 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
 
   def base_extraction
     {
+      "name" => "Jane Doe",
+      "email" => "jane@example.com",
+      "phone" => "555-123-4567",
       "summary" => "Product-minded engineer with experience building scalable systems.",
       "skills" => [ "Ruby" ],
       "experiences" => [ base_experience ],
@@ -135,9 +181,11 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
 
   def sample_pdf_path
     @sample_pdf_path ||= begin
-      path = Rails.root.join("tmp/llm_extractor_test_sample.pdf").to_s
+      path = Rails.root.join("tmp/llm_extractor_test_sample_#{object_id}_#{rand(10_000)}.pdf").to_s
       Prawn::Document.generate(path) do
         text "Jane Doe", size: 20
+        text "jane@example.com"
+        text "555-123-4567"
         text "Summary"
         text "Product-minded engineer with experience building scalable systems."
         text "Experience"

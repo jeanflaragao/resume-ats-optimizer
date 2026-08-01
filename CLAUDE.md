@@ -14,8 +14,11 @@ layout below), the bullet point rewriting prompt exists (issue #9: `BulletRewrit
 ATS match score calculation exists (issue #10: `MatchScore`, deterministic, built on
 `Comparison::Result`), and hallucination safeguards exist for both LLM call sites (issue #11:
 `FidelityCheck`, deterministic — `BulletRewriter` falls back to the original bullet on failure,
-`Resume::Extractors::Llm` surgically drops/nulls unverified fields; see Project layout below).
-No PDF template yet (issues #12-#18 onward, minus #4/#5/#7/#8/#9/#10/#11). The project is named
+`Resume::Extractors::Llm` surgically drops/nulls unverified fields; see Project layout below), and
+`Resume` has `name`/`email`/`phone` (issue #41, a prerequisite filed ahead of #12 specifically so
+the PDF template has real data for an identity header — extracted via the LLM strategy and
+`JsonMapper`, not yet via `PdfRegex`). No PDF template yet (issues #12-#18 onward, minus
+#4/#5/#7/#8/#9/#10/#11/#41). The project is named
 `resume-ats-optimizer`, a hosted, multi-user tool for
 optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored resume as a downloadable PDF.
@@ -118,18 +121,19 @@ No Postgres or `libpq` is required on the host — everything runs through Docke
 
 Otherwise standard Rails 8 conventions.
 
-- **`app/models`**: `Resume` (`summary:text`, `skills:jsonb` array of strings) `has_many
-  :experiences` and `:educations`, both ordered by a `position:integer` column (preserves the
-  source resume's original ordering independent of dates, which may be missing/ambiguous from a
-  parsed export) and `dependent: :destroy`. `Experience` (`company`/`title` required,
-  `bullets:jsonb` array of strings) and `Education` (`school` required) each `belongs_to
-  :resume`. Bullets and skills are jsonb string arrays rather than their own tables —
-  unstructured lists don't need independent identity yet; structured fields (`company`, `title`,
-  `school`, dates) are real columns. No `User`/auth model exists yet, so `Resume` has no owner —
-  that's a follow-on migration whenever auth is implemented, not part of the resume schema
-  itself. Table/model were originally named `Cv`/`cvs`, renamed to `Resume`/`resumes` via a
-  dedicated `rename_table`/`rename_column` migration (not by editing the original migrations)
-  since they'd already run in dev.
+- **`app/models`**: `Resume` (`name`/`email`/`phone` — all nullable, added ahead of issue #12
+  specifically so the PDF template has real data for an identity header; `summary:text`,
+  `skills:jsonb` array of strings) `has_many :experiences` and `:educations`, both ordered by a
+  `position:integer` column (preserves the source resume's original ordering independent of
+  dates, which may be missing/ambiguous from a parsed export) and `dependent: :destroy`.
+  `Experience` (`company`/`title` required, `bullets:jsonb` array of strings) and `Education`
+  (`school` required) each `belongs_to :resume`. Bullets and skills are jsonb string arrays
+  rather than their own tables — unstructured lists don't need independent identity yet;
+  structured fields (`company`, `title`, `school`, dates) are real columns. No `User`/auth model
+  exists yet, so `Resume` has no owner — that's a follow-on migration whenever auth is
+  implemented, not part of the resume schema itself. Table/model were originally named
+  `Cv`/`cvs`, renamed to `Resume`/`resumes` via a dedicated `rename_table`/`rename_column`
+  migration (not by editing the original migrations) since they'd already run in dev.
 - **`app/services/resume/`**: resume import/extraction, all under the `Resume::` namespace
   (nested under the `Resume` model itself — a supported Zeitwerk "class as namespace" pattern).
   - `Import` — entry point, `Resume::Import.call(file:, strategy: "llm" | "regex")`. Infers
@@ -138,8 +142,8 @@ Otherwise standard Rails 8 conventions.
     `Experience`/`Education` validations rolls back and raises rather than silently persisting
     partial data). Records which extractor ran in `resumes.source`.
   - `ExtractionSchema` — the `RubyLLM::Schema` used by the LLM extractor; defines the shared
-    normalized hash shape (`summary`, `skills`, `experiences[]`, `educations[]`) that every
-    extractor returns and `Import` consumes.
+    normalized hash shape (`name`, `email`, `phone`, `summary`, `skills`, `experiences[]`,
+    `educations[]`) that every extractor returns and `Import` consumes.
   - `Extractors::Llm` — sends the file directly to Claude (`chat.with_schema(...).ask(prompt,
     with: file_path)`), works unmodified for PDF or JSON. Takes `chat:` as a keyword arg
     (default `RubyLLM.chat`) so tests can inject a fake instead of hitting the network. Since
@@ -149,10 +153,16 @@ Otherwise standard Rails 8 conventions.
     experience/education entry (nulling would still fail `Resume::Import`'s `create!` and roll
     back the entire resume). Reading the file's text for this (via `pdf-reader` for PDFs)
     reintroduces `PdfRegex`'s layout-reliability ceiling as a verification floor here too — some
-    false-positive drops on PDFs are an accepted trade-off, not a bug.
+    false-positive drops on PDFs are an accepted trade-off, not a bug. `phone` is verified by its
+    digit-only representation rather than a literal match (legitimate reformatting is expected,
+    same idea as the date year-check); `email`/`phone` drops are logged without the raw value
+    (field name/reason only) since, unlike every other field, they're PII.
   - `Extractors::PdfRegex` — deterministic PDF path: `pdf-reader` for text, then a small state
     machine over the lines (section headers → date-range lines → bullet-prefixed lines) to find
-    entry boundaries. Best-effort by nature; see the Stack section above for the trade-off.
+    entry boundaries. Best-effort by nature; see the Stack section above for the trade-off. Does
+    **not** extract `name`/`email`/`phone` (would need new heuristics for a pre-section-header
+    name line) — those stay `nil` for the `"regex"` strategy, consistent with its lesser-fidelity
+    character elsewhere.
   - `Extractors::JsonMapper` — deterministic JSON path: parses and maps a JSON file already
     shaped like the normalized hash above.
   - Note: `config/initializers/ruby_llm.rb` has `require "ruby_llm/schema"` — the schema DSL

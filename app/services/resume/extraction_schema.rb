@@ -1,4 +1,8 @@
 class Resume::ExtractionSchema < RubyLLM::Schema
+  string :name, required: false, description: "The candidate's full name, verbatim from the document."
+  string :email, required: false, description: "The candidate's email address, verbatim from the document."
+  string :phone, required: false, description: "The candidate's phone number, verbatim from the document."
+
   string :summary, required: false,
     description: "The candidate's professional summary/about section, verbatim or lightly condensed. Omit if none is present."
 

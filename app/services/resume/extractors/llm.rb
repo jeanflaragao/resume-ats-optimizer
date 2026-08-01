@@ -7,11 +7,14 @@ require "pdf/reader"
 # back to the source is dropped/nulled rather than persisted, and logged so a
 # drop is debuggable after the fact:
 #
-# - company/title/school/location/each skill: must appear verbatim in the
-#   source text (WordBoundaryMatchable) — the schema treats these as
+# - name/email/company/title/school/location/each skill: must appear verbatim
+#   in the source text (WordBoundaryMatchable) — the schema treats these as
 #   near-literal fields, and a coverage ratio would be the wrong tool (it's
 #   order-blind, so a fabricated "Acme Corp" whose two words each appear
 #   unrelated elsewhere in the document would false-pass).
+# - phone: compared by its digit-only representation rather than a literal
+#   match, since legitimate reformatting is expected (e.g. "555.123.4567"
+#   extracted as "(555) 123-4567").
 # - bullets/summary: paraphrase-tolerant token-coverage check (FidelityCheck)
 #   — bullets are supposed to be close to verbatim, summary is explicitly
 #   allowed to be "lightly condensed", hence the different thresholds below.
@@ -23,6 +26,9 @@ require "pdf/reader"
 # Resume::Import's create! and roll back the entire resume, which defeats the
 # point of checking per-field at all. Everything else is dropped/nulled in
 # place, keeping the rest of the entry intact.
+#
+# email/phone drops are logged without the raw value (field name/reason only) —
+# unlike every other field, these are PII and shouldn't land verbatim in logs.
 #
 # Note: reading the file's raw text here (via pdf-reader, for PDFs) to verify
 # against reintroduces pdf-reader's documented layout-reliability ceiling
@@ -38,15 +44,16 @@ class Resume::Extractors::Llm
   BULLET_MIN_TOKEN_COVERAGE = 0.9
   SUMMARY_MIN_TOKEN_COVERAGE = 0.75
   YEAR_PATTERN = /\A(\d{4})/
+  DIGITS_PATTERN = /\d/
 
   PROMPT = <<~PROMPT.freeze
-    Extract the professional summary, skills, work experience, and education from
-    the attached document into the given schema.
+    Extract the candidate's name, email, phone, professional summary, skills, work
+    experience, and education from the attached document into the given schema.
 
     Only include information that is explicitly present in the document. Do not
-    invent, infer, or embellish company names, job titles, dates, schools, or
-    bullet points that are not literally stated. If a section is absent, return
-    an empty list (or omit the summary) rather than guessing.
+    invent, infer, or embellish names, contact info, company names, job titles,
+    dates, schools, or bullet points that are not literally stated. If a section or
+    field is absent, omit it rather than guessing.
   PROMPT
 
   def self.call(file_path:, chat: RubyLLM.chat)
@@ -69,6 +76,9 @@ class Resume::Extractors::Llm
 
   def verify(data)
     {
+      "name" => verified_verbatim_field(data["name"], "name"),
+      "email" => verified_verbatim_field(data["email"], "email", log_value: false),
+      "phone" => verified_phone(data["phone"]),
       "summary" => verified_summary(data["summary"]),
       "skills" => verified_skills(Array(data["skills"])),
       "experiences" => Array(data["experiences"]).filter_map { |experience| verified_experience(experience) },
@@ -126,12 +136,28 @@ class Resume::Extractors::Llm
     )
   end
 
-  def verified_verbatim_field(value, field_name)
+  def verified_verbatim_field(value, field_name, log_value: true)
     return value if value.blank?
     return value if word_boundary_match?(value, source_text)
 
-    warn_drop(field_name, value, "not found in source text")
+    warn_drop(field_name, value, "not found in source text", log_value: log_value)
     nil
+  end
+
+  # Compared by digit content rather than a literal match, since legitimate
+  # reformatting is expected (e.g. "555.123.4567" vs "(555) 123-4567").
+  def verified_phone(phone)
+    return phone if phone.blank?
+
+    digits = phone.scan(DIGITS_PATTERN).join
+    return phone if digits.present? && source_digits.include?(digits)
+
+    warn_drop("phone", phone, "not found in source text", log_value: false)
+    nil
+  end
+
+  def source_digits
+    @source_digits ||= source_text.scan(DIGITS_PATTERN).join
   end
 
   def verified_year(date_value, field_name)
@@ -158,8 +184,9 @@ class Resume::Extractors::Llm
     FidelityCheck.call(candidate_text: candidate_text, source_text: source_text, min_token_coverage: min_token_coverage)
   end
 
-  def warn_drop(field, value, reason)
-    Rails.logger.warn("Resume::Extractors::Llm: dropped #{field} #{value.inspect} (#{reason})")
+  def warn_drop(field, value, reason, log_value: true)
+    logged_value = log_value ? value.inspect : "[redacted]"
+    Rails.logger.warn("Resume::Extractors::Llm: dropped #{field} #{logged_value} (#{reason})")
   end
 
   def source_text
