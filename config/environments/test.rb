@@ -25,7 +25,11 @@ Rails.application.configure do
   # Render exception templates for rescuable exceptions and raise for other exceptions.
   config.action_dispatch.show_exceptions = :rescuable
 
-  # Disable request forgery protection in test environment.
+  # Disable request forgery protection in test environment. Integration tests run in-process
+  # and never render real forms or carry tokens, so this stays off for them. System tests do
+  # render real forms in a real browser -- ApplicationSystemTestCase opts back in for the
+  # duration of each example (see issue #57 / ADR-0013) rather than this being flipped
+  # globally, which would fail every post in test/integration/ for no added signal.
   config.action_controller.allow_forgery_protection = false
 
   # Tell Action Mailer not to deliver emails to the real world.

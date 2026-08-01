@@ -20,3 +20,4 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0010 | Accept `data: { turbo: false }` as a stopgap for POST-rendering controllers | Accepted | [0010-turbo-drive-stopgap-data-turbo-false.md](0010-turbo-drive-stopgap-data-turbo-false.md) |
 | 0011 | Drop unused ActiveStorage/ActionText/ActionMailbox from the dependency tree | Accepted | [0011-drop-unused-active-storage-action-text-mailbox.md](0011-drop-unused-active-storage-action-text-mailbox.md) |
 | 0012 | Wire Solid Cache as the production cache store | Accepted | [0012-wire-solid-cache-as-production-cache-store.md](0012-wire-solid-cache-as-production-cache-store.md) |
+| 0013 | Enable CSRF forgery protection for system tests only | Accepted | [0013-enable-forgery-protection-in-system-tests.md](0013-enable-forgery-protection-in-system-tests.md) |
