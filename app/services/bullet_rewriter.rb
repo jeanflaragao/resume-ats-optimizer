@@ -6,6 +6,7 @@
 # FidelityCheck against its own original (only), and any bullet that fails
 # falls back to its original wording rather than risking invented content.
 class BulletRewriter
+  include RedactedTokenHint
   class MismatchedBulletCountError < StandardError; end
 
   FIDELITY_MIN_TOKEN_COVERAGE = FidelityCheck::DEFAULT_MIN_TOKEN_COVERAGE
@@ -68,7 +69,7 @@ class BulletRewriter
 
     Rails.logger.warn(
       "BulletRewriter: bullet #{index + 1} failed fidelity check " \
-      "(unverifiable: #{result.unverifiable_tokens.join(', ')}); using original wording instead."
+      "(unverifiable: #{redacted_token_hint(result.unverifiable_tokens)}); using original wording instead."
     )
     original
   end
