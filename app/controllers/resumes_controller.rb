@@ -23,6 +23,6 @@ class ResumesController < ApplicationController
   end
 
   def show
-    @resume = Resume.find_by!(id: params[:id], owner_token: current_owner_token)
+    @resume = find_owned_resume!(params[:id])
   end
 end

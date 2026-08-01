@@ -5,7 +5,64 @@
     Parsed <%= pluralize(@resume.experiences.size, "work experience") %> and
     <%= pluralize(@resume.educations.size, "education entry", "education entries") %>.
   </p>
+
+  <h2 class="text-lg font-semibold mb-2">Check against a job description</h2>
+  <p class="text-gray-600 mb-4">
+    Paste a job posting below to see how this resume matches it.
+  </p>
+
+  <%= form_with url: resume_job_description_path(@resume), method: :post, class: "flex flex-col gap-4 mb-8" do |form| %>
+    <%= form.text_area :job_description_text, value: @job_description_text, rows: 10, required: true,
+          class: "border rounded p-2" %>
+    <%= form.submit "Check match", class: "bg-blue-600 text-white rounded px-4 py-2 self-start cursor-pointer" %>
+  <% end %>
+
+  <% if @comparison %>
+    <div class="border-t pt-6 mb-8">
+      <h2 class="text-lg font-semibold mb-2">Match results</h2>
+
+      <% if @match_score %>
+        <p class="text-2xl font-semibold mb-4"><%= @match_score %>% match</p>
+      <% else %>
+        <p class="text-gray-500 mb-4">
+          Not enough required/preferred skills or keywords were found in the job description to
+          calculate a score.
+        </p>
+      <% end %>
+
+      <div class="flex flex-col gap-4">
+        <div>
+          <h3 class="font-medium">Required skills</h3>
+          <p class="text-sm text-gray-600">
+            Matched: <%= @comparison.matched_required_skills.join(", ").presence || "none" %>
+          </p>
+          <p class="text-sm text-gray-600">
+            Missing: <%= @comparison.missing_required_skills.join(", ").presence || "none" %>
+          </p>
+        </div>
+        <div>
+          <h3 class="font-medium">Preferred skills</h3>
+          <p class="text-sm text-gray-600">
+            Matched: <%= @comparison.matched_preferred_skills.join(", ").presence || "none" %>
+          </p>
+          <p class="text-sm text-gray-600">
+            Missing: <%= @comparison.missing_preferred_skills.join(", ").presence || "none" %>
+          </p>
+        </div>
+        <div>
+          <h3 class="font-medium">Keywords</h3>
+          <p class="text-sm text-gray-600">
+            Matched: <%= @comparison.matched_keywords.join(", ").presence || "none" %>
+          </p>
+          <p class="text-sm text-gray-600">
+            Missing: <%= @comparison.missing_keywords.join(", ").presence || "none" %>
+          </p>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
   <p class="text-gray-500 text-sm">
-    Next: tailoring this resume against a job description isn't built yet (see issues #16-#18).
+    Next: previewing and downloading the optimized resume isn't built yet (see issues #17-#18).
   </p>
 </div>

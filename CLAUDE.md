@@ -24,8 +24,11 @@ optimized (bullet-rewritten) resume data exists (issue #13: `Resume::Optimizatio
 exists (issue #15: `ResumesController`/`app/views/resumes` — the app's first controller/routes/
 views, plus a `LlmCallGuard` safety net added as a prerequisite so local/manual testing can't
 trigger real Anthropic API calls by accident, and a placeholder session-based `owner_token` on
-`Resume` since real auth doesn't exist yet; see Project layout below). Remaining pipeline issues
-(#16-#18) not yet done. The project is named
+`Resume` since real auth doesn't exist yet; see Project layout below), and the job description
+input field exists (issue #16: `JobDescriptionsController`, wiring the already-existing
+`JobDescription::Extractor`/`Comparison`/`MatchScore` pipeline to a form on `resumes/show` — see
+Project layout below). Remaining pipeline issues
+(#17-#18) not yet done. The project is named
 `resume-ats-optimizer`, a hosted, multi-user tool for
 optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored resume as a downloadable PDF.
@@ -298,10 +301,25 @@ Otherwise standard Rails 8 conventions.
   (`ActionDispatch::IntegrationTest`, not a full `ApplicationSystemTestCase` browser test — #15
   has no Turbo Stream/Stimulus behavior yet to justify one, and running in-process is what lets
   the happy-path test rely on `LlmCallGuard`'s stub instead of a real API call; revisit this
-  choice once #16/#17 add real async/Turbo Stream behavior worth exercising in-browser).
-- Remaining pipeline issues (#16-#18): expect PDF rendering as a Solid Queue job (`app/jobs` —
-  still doesn't exist), and more Turbo-driven views/controllers per pipeline stage (job
-  description input, preview, download).
+  choice once #17 adds real async/Turbo Stream behavior worth exercising in-browser).
+- **`app/controllers/job_descriptions_controller.rb`** (issue #16): single `create` action
+  wiring the job-description textarea on `resumes/show.html.erb` to the already-existing
+  `JobDescription::Extractor` (#7) → `Comparison` (#8) → `MatchScore` (#10) pipeline — none of
+  those services changed for this issue. `job_description_text` is never persisted, only passed
+  through as a request param (consistent with those services already being
+  persistence-free). Blank text re-renders `resumes/show` with a `flash.now` alert (same pattern
+  as `ResumesController#create`'s file-upload validation); non-blank text re-renders the same
+  template with `@comparison`/`@match_score` set, which the view uses to show matched/missing
+  required skills, preferred skills, and keywords, and the score itself — `MatchScore.call`'s
+  documented `nil` case (job description had nothing to score against) renders a distinct
+  message rather than a misleading 0%. Routes: `resources :resumes { resource :job_description,
+  only: :create }`. Reuses a new `ApplicationController#find_owned_resume!` helper (extracted
+  from `ResumesController#show`'s existing owner-token scoping, now shared by both controllers).
+  Covered by `test/integration/job_description_comparisons_test.rb`, same
+  `ActionDispatch::IntegrationTest` convention as #15.
+- Remaining pipeline issues (#17-#18): expect PDF rendering as a Solid Queue job (`app/jobs` —
+  still doesn't exist), and more Turbo-driven views/controllers per pipeline stage (preview,
+  download).
 
 ## Next steps for Claude
 

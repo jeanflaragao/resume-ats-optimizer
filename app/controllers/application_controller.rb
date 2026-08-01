@@ -11,4 +11,10 @@ class ApplicationController < ActionController::Base
   def current_owner_token
     session[:owner_token] ||= SecureRandom.hex(32)
   end
+
+  # Shared owner-scoped lookup for any controller acting on a Resume
+  # (ResumesController#show, JobDescriptionsController#create).
+  def find_owned_resume!(id)
+    Resume.find_by!(id: id, owner_token: current_owner_token)
+  end
 end
