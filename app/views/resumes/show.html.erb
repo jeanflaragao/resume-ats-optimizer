@@ -11,15 +11,31 @@
     Paste a job posting below to see how this resume matches it.
   </p>
 
-  <%= form_with url: resume_job_description_path(@resume), method: :post, class: "flex flex-col gap-4 mb-8" do |form| %>
-    <%= form.text_area :job_description_text, value: @job_description_text, rows: 10, required: true,
-          class: "border rounded p-2" %>
-    <div class="flex gap-2">
-      <%= form.submit "Check match", class: "bg-blue-600 text-white rounded px-4 py-2 cursor-pointer" %>
-      <%= form.button "Preview optimized resume", formaction: resume_preview_path(@resume),
-            class: "bg-gray-700 text-white rounded px-4 py-2 cursor-pointer" %>
-    </div>
-  <% end %>
+  <%# data: { turbo: false } is a stopgap -- see issue #47, filed after #18's system test
+      caught Turbo Drive rejecting a plain 200 render in response to a POST (it requires
+      either a redirect or a turbo_stream response). Proper fix is converting this to a
+      turbo_stream response, matching CLAUDE.md's Stack section.
+
+      Two separate forms (not one form with a formaction-overridden second button) because
+      Rails' per-form CSRF tokens bind a form's authenticity_token to its own declared action
+      -- a formaction override submits to a different path than the token was generated for,
+      which fails CSRF verification on a real (non-Turbo) POST. This was a real, pre-existing
+      bug from #17, only found via manual browser testing in #18 since the test env disables
+      forgery protection entirely (config/environments/test.rb). The sync Stimulus controller
+      keeps the second form's hidden field mirroring the visible textarea. %>
+  <div data-controller="sync">
+    <%= form_with url: resume_job_description_path(@resume), method: :post, data: { turbo: false },
+          class: "flex flex-col gap-4 mb-4" do |form| %>
+      <%= form.text_area :job_description_text, value: @job_description_text, rows: 10, required: true,
+            class: "border rounded p-2", data: { sync_target: "source", action: "input->sync#sync" } %>
+      <%= form.submit "Check match", class: "bg-blue-600 text-white rounded px-4 py-2 self-start cursor-pointer" %>
+    <% end %>
+
+    <%= form_with url: resume_preview_path(@resume), method: :post, data: { turbo: false }, class: "mb-8" do |form| %>
+      <%= form.hidden_field :job_description_text, data: { sync_target: "target" } %>
+      <%= form.submit "Preview optimized resume", class: "bg-gray-700 text-white rounded px-4 py-2 cursor-pointer" %>
+    <% end %>
+  </div>
 
   <% if @comparison %>
     <div class="border-t pt-6 mb-8">
@@ -65,8 +81,4 @@
       </div>
     </div>
   <% end %>
-
-  <p class="text-gray-500 text-sm">
-    Next: downloading the optimized resume as a PDF isn't built yet (see issue #18).
-  </p>
 </div>

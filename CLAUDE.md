@@ -29,8 +29,12 @@ input field exists (issue #16: `JobDescriptionsController`, wiring the already-e
 `JobDescription::Extractor`/`Comparison`/`MatchScore` pipeline to a form on `resumes/show` — see
 Project layout below), and the resume preview screen exists (issue #17: `PreviewsController`,
 wiring the already-existing `Resume::Optimization` to a second button on that same form, plus a
-new `app/views/previews/show.html.erb` — see Project layout below). Remaining pipeline issues
-(#18) not yet done. The project is named
+new `app/views/previews/show.html.erb` — see Project layout below), and the PDF download flow
+exists (issue #18: `DownloadsController` + `Resume::OptimizedPdfJob`, the app's first real
+Solid Queue/Turbo Stream usage — see Project layout below). Phase 5 (Frontend) is complete;
+follow-up infrastructure issues #47 (Turbo Drive `data: turbo: false` stopgap — see Stack) and
+#48 (Kamal deployment doesn't exist yet, so the Solid Queue worker has nowhere to actually run
+in production) remain open. The project is named
 `resume-ats-optimizer`, a hosted, multi-user tool for
 optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored resume as a downloadable PDF.
@@ -42,14 +46,51 @@ paste a job description, and get back an ATS-friendly, tailored resume as a down
 - **App structure**: standard Rails app (not `--api` mode) — server-rendered views with Turbo
   Frames/Streams driving the upload → analyze → preview → download flow, Stimulus for light
   client-side interactivity. No separate JS frontend framework or hand-rolled JSON API.
+  **Known deviation (issue #47)**: `JobDescriptionsController#create` (#16), `PreviewsController#
+  create` (#17), and `DownloadsController#create` (#18) all `render` an HTML template directly in
+  response to a POST — Turbo Drive rejects that client-side ("Form responses must redirect to
+  another location") unless the response is either a redirect or `turbo_stream`. This was only
+  caught once #18 added the repo's first system test (`test/system/resume_downloads_test.rb`) —
+  no earlier issue had one, since integration tests don't run real browser JS and can't see Turbo
+  Drive reject a response. Current stopgap: both affected forms (`resumes/show.html.erb`,
+  `previews/show.html.erb`) have `data: { turbo: false }`, forcing a real full-page submit instead
+  of a Turbo-intercepted fetch. #47 tracks converting all three actions to real `turbo_stream`
+  responses instead, which is what this bullet's own architecture actually calls for.
+  **A second, since-fixed bug found the same way**: `resumes/show.html.erb`'s "Preview optimized
+  resume" button originally shared one `<form>` with "Check match" via a `formaction`-overridden
+  submit button (same textarea, two destinations) — this crashed with
+  `ActionController::InvalidAuthenticityToken` on a real (non-Turbo) POST. `config.load_defaults
+  8.0` enables per-form CSRF tokens, which bind a form's `authenticity_token` to its own declared
+  `action`; `formaction` submits somewhere else, so the token no longer matches. Fixed (not
+  deferred) by giving that button its own `<form>` (correctly scoped, its own valid token) with a
+  hidden `job_description_text` field kept in sync with the visible textarea by
+  `app/javascript/controllers/sync_controller.js`. **This class of bug is invisible to every
+  automated test in this repo**: `config/environments/test.rb` sets
+  `config.action_controller.allow_forgery_protection = false` (a common, otherwise-reasonable
+  Rails default), so integration and system tests alike never exercise real CSRF verification.
+  Manual browser testing against the dev server (where forgery protection is genuinely active)
+  remains the only way to catch this kind of bug — both this one and the `formaction` issue above
+  were found that way while implementing #18, not by any test in the suite.
 - **JS/CSS**: `importmap-rails` (no Node build step) + `tailwindcss-rails`. Keeps the Docker
   image Node-free, simplifying the Kamal deploy.
 - **Database**: Postgres only, no Redis. Rails 8's Solid trio (Solid Queue, Solid Cache, Solid
   Cable) runs background jobs, caching, and pub/sub off the same Postgres instance — one fewer
   service for a solo maintainer to run under Kamal.
-- **Background jobs**: LLM calls and PDF rendering are slow and cost-bearing, so they run as
-  Solid Queue jobs rather than inline in the request, with Turbo Streams pushing results back to
-  the page. This is also where per-user rate limiting on LLM/PDF usage should live.
+- **Background jobs**: LLM calls and PDF rendering are slow and cost-bearing, so in **production**
+  they run as Solid Queue jobs (`config.active_job.queue_adapter = :solid_queue`, wired in #18)
+  rather than inline in the request, with Turbo Streams pushing results back to the page. This is
+  also where per-user rate limiting on LLM/PDF usage should live. **Development/test intentionally
+  stay on Rails' default `:async` in-process adapter** rather than also running real Solid Queue
+  locally (decided in #18) — no separate local `queue` database, no extra docker-compose worker
+  service. This isn't a lesser architecture for dev, just a smaller one: Turbo Stream broadcast
+  behavior is identical from the browser's perspective regardless of which ActiveJob adapter ran
+  the job, and durability/admin-visibility across process restarts — the actual reasons to want
+  Solid Queue — don't matter for a local dev/test run. Production's queue *and* Solid Cable
+  (`config/cable.yml`, needed the moment #18 added the app's first real ActionCable broadcast)
+  both already had unused database entries in `config/database.yml` from the initial scaffold;
+  #18 is what actually wired them up (and fixed `cable.yml`'s production adapter, which was still
+  the Rails-default `redis`, contradicting "no Redis" above, until #18 pointed it at `solid_cable`
+  instead — the gem was already in the Gemfile but never actually configured).
 - **LLM client**: `RubyLLM` gem (not `ruby-anthropic`) for the Claude API calls that power
   requirement extraction and bullet rewriting. Chosen over a thin API wrapper because it can
   persist prompt/response pairs against ActiveRecord, which the anti-hallucination safeguard
@@ -115,8 +156,8 @@ folders. Everything lives in standard Rails locations (`app/models/`,
 ## Local development
 
 No Postgres or `libpq` is required on the host — everything runs through Docker Compose
-(`docker-compose.yml` + `Dockerfile.dev`, dev-only; production still builds from the root
-`Dockerfile` via Kamal per `config/deploy.yml`).
+(`docker-compose.yml` + `Dockerfile.dev`, dev-only; production is intended to build from the
+root `Dockerfile` via Kamal, but `config/deploy.yml` doesn't actually exist yet — see issue #48).
 
 - Copy `.env.example` to `.env` and fill in `ANTHROPIC_API_KEY` before running anything that
   calls the LLM (extraction, bullet rewriting). `.env` is gitignored (`.gitignore`'s `/.env*`
@@ -321,9 +362,8 @@ Otherwise standard Rails 8 conventions.
   Covered by `test/integration/job_description_comparisons_test.rb`, same
   `ActionDispatch::IntegrationTest` convention as #15.
 - **`app/controllers/previews_controller.rb`** + **`app/views/previews/show.html.erb`** (issue
-  #17): single `create` action wiring a second submit button on `resumes/show.html.erb`'s
-  job-description form (`formaction`-overridden, same textarea, no duplicate form/JS) to the
-  already-existing `Resume::Optimization` (#13) — unchanged for this issue, including its
+  #17): single `create` action wiring a "Preview optimized resume" button on `resumes/show.html.erb`
+  to the already-existing `Resume::Optimization` (#13) — unchanged for this issue, including its
   `chat: LlmCallGuard.chat` default, so previewing goes through the same stub/daily-cap guard as
   every other LLM call site. `job_description_text` is never persisted here either, for the same
   reason as #16 — CLAUDE.md's own `Resume::Optimization` entry already anticipated "a future
@@ -336,15 +376,71 @@ Otherwise standard Rails 8 conventions.
   service rather than being pulled into a shared helper). Stays
   synchronous (no Solid Queue), consistent with #16 — that wiring remains #18's scope per
   `Resume::Optimization`'s own doc comment. Routes: `resources :resumes { resource :preview, only:
-  :create }`. Reuses `find_owned_resume!` (#16). Covered by
+  :create }`. Reuses `find_owned_resume!` (#16). Its button now lives in its own `<form>` on
+  `resumes/show.html.erb`, kept in sync with the job-description textarea by
+  `app/javascript/controllers/sync_controller.js` — see the Stack section's CSRF note (found/fixed
+  in #18) for why. Covered by
   `test/integration/resume_previews_test.rb`, same `ActionDispatch::IntegrationTest` convention —
   note its happy-path test asserts on `BulletRewriter`'s logged fidelity-check fallback (same
   technique `test/services/resume/optimization_test.rb` uses) rather than on `LlmCallGuard`'s stub
   label appearing verbatim, since the stub's label text itself always fails `BulletRewriter`'s own
   fidelity check and falls back to the original bullet — that fallback, not a bypass, is what
   proves the real pipeline ran.
-- Remaining pipeline issues (#18): expect PDF rendering as a Solid Queue job (`app/jobs` — still
-  doesn't exist), and a Turbo-driven download flow.
+- **`app/jobs/resume/optimized_pdf_job.rb`** + **`app/controllers/downloads_controller.rb`** +
+  **`app/views/downloads/`** (issue #18): the app's first real Solid Queue job and first real
+  Turbo Stream broadcast. `DownloadsController#create` validates `job_description_text`
+  (resubmitted via a hidden field on `previews/show.html.erb`'s own form, same "never persisted"
+  pattern as #16/#17), generates a `download_id` (`SecureRandom.uuid`), enqueues
+  `Resume::OptimizedPdfJob.perform_later`, and renders a status page
+  (`downloads/create.html.erb`) subscribed via `turbo_stream_from "download_#{download_id}"`.
+  The job re-runs `Resume::Optimization` (#13) → `Resume::Pdf` (#12) — deliberately not reusing
+  whatever #17's preview already computed, see below — then `Rails.cache.write`s the bytes
+  (Solid Cache, no new schema/table for a transient artifact) and broadcasts a
+  `turbo_stream.replace` of `#download_status` to either `downloads/_ready` (a link to
+  `DownloadsController#show`) or `downloads/_failed` (rescued error path, so a raised exception
+  doesn't leave the user staring at "Generating..." forever). **A second, real race was found and
+  fixed via manual browser testing**: the job can finish and broadcast before the status page's
+  ActionCable subscription has actually connected — broadcasts aren't queued for late subscribers,
+  so that update is just lost, leaving "Generating..." stuck forever even though the download was
+  ready the whole time (confirmed happening locally, where stub-mode LLM responses are
+  near-instant; a resume with few/no bullets to rewrite could hit the same race in production,
+  since there'd be little to no LLM latency there either). Fixed with a small, deliberately
+  narrow fallback rather than full polling: `DownloadsController#ready`
+  (`GET /downloads/:id/ready`) returns `204` if the job hasn't finished or the rendered
+  `downloads/_ready` partial if it has (still owner-scoped via `find_owned_resume!`), and
+  `app/javascript/controllers/download_status_controller.js` calls it exactly once, on connect,
+  swapping in the result if already ready. If the normal broadcast arrives first, this is a no-op
+  (`204`, nothing to swap). `DownloadsController#show` reads
+  `Rails.cache.read("download/\#{id}")`, re-verifies ownership via `find_owned_resume!` against
+  the cached `resume_id` before `send_data`-ing the bytes, and redirects with a flash if the
+  `download_id` is missing/expired instead of erroring — the cached download_id is *not* treated
+  as a bearer capability on its own, staying consistent with every other action's owner_token
+  scoping. Routes: `resources :resumes { resources :downloads, only: :create }` +
+  `resources :downloads, only: :show` (top-level, since the id is the opaque download_id, not
+  scoped to a resume in the URL). No caching of the `Resume::Optimization` step itself (i.e. a
+  preview-then-download not skipping a redundant LLM rewrite) — decided against for a first
+  version: going async already removes the *latency* half of that concern (the user isn't
+  blocked waiting through a second rewrite anymore, just paying for extra API calls), a correct
+  cache key would need real invalidation design nothing in this app has yet, and the remaining
+  concern is cost-shaped, better addressed holistically alongside #22 than as a one-off cache
+  bolted on ahead of it. Tests: `test/jobs/resume/optimized_pdf_job_test.rb` (byte-level —
+  `%PDF` header + `PDF::Reader` text extraction, same rigor as `resume/pdf_test.rb` — plus
+  `assert_turbo_stream_broadcasts`), `test/integration/resume_downloads_test.rb`
+  (enqueue/serve/expired/cross-session), and the repo's first system test,
+  `test/system/resume_downloads_test.rb` (Capybara + Selenium — the Gemfile/
+  `test/application_system_test_case.rb` had these configured since scaffolding but nothing had
+  exercised them; needed `chromium` added to `Dockerfile.dev` and `--no-sandbox`/
+  `--disable-dev-shm-usage` Chrome args added to the driver config to actually run in a
+  container — see that file). Deliberately doesn't assert the live broadcast landing
+  client-side (real ActionCable-over-websocket-in-a-headless-browser is a known flakiness
+  source for little extra coverage beyond what `assert_turbo_stream_broadcasts` already verifies
+  precisely) — just that a real browser reaches the subscribed status page, which is the one
+  thing the job/integration tests can't verify. This same system test is what caught issue #47
+  (see Stack) — a real, pre-existing bug in #16/#17's already-merged controllers that no
+  integration test could have found.
+- Phase 5 (Frontend) is complete. Follow-ups: #47 (Turbo Drive stopgap, see Stack), #48 (Kamal
+  deployment doesn't exist yet — `config/deploy.yml` was never actually created despite this
+  file referencing it, so #18's Solid Queue worker has nowhere to run in production yet).
 
 ## Next steps for Claude
 

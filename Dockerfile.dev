@@ -4,8 +4,11 @@
 ARG RUBY_VERSION=3.4.9
 FROM docker.io/library/ruby:$RUBY_VERSION-slim
 
+# chromium: headless browser for system tests (test/application_system_test_case.rb,
+# capybara + selenium-webdriver, added in #18) -- selenium-webdriver's Selenium
+# Manager auto-resolves a matching chromedriver against whatever's on PATH.
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential git libpq-dev pkg-config && \
+    apt-get install --no-install-recommends -y build-essential git libpq-dev pkg-config chromium && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Match the host user (uid/gid 1000) so files written into the bind-mounted

@@ -1,0 +1,11 @@
+<div class="max-w-xl mx-auto w-full">
+  <h1 class="text-2xl font-semibold mb-4">Preparing your download</h1>
+
+  <%= turbo_stream_from "download_#{@download_id}" %>
+
+  <%# data-controller/-url-value: fallback for the job finishing before the turbo_stream_from
+      subscription above has connected -- see DownloadsController#ready. %>
+  <div id="download_status" data-controller="download-status" data-download-status-url-value="<%= ready_download_path(@download_id) %>">
+    <p class="text-gray-600">Generating your optimized resume PDF... this can take up to a minute.</p>
+  </div>
+</div>

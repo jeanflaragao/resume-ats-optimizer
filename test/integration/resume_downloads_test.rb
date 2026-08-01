@@ -1,0 +1,143 @@
+require "test_helper"
+
+class ResumeDownloadsTest < ActionDispatch::IntegrationTest
+  include ActiveJob::TestHelper
+
+  setup do
+    # Test env's cache_store is :null_store (see config/environments/test.rb),
+    # which no-ops read/write -- swap in a real store, same fix
+    # test/services/llm_call_guard_test.rb already uses for this exact problem.
+    @original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+  end
+
+  teardown do
+    Rails.cache = @original_cache
+  end
+
+  test "blank job description text re-renders the resume's show page with an error, no job enqueued" do
+    resume = upload_resume
+
+    assert_no_enqueued_jobs do
+      post resume_downloads_path(resume), params: { job_description_text: "" }
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes response.body, "paste a job description"
+  end
+
+  test "a non-blank job description text enqueues the PDF job and renders the status page" do
+    resume = upload_resume
+
+    assert_enqueued_with(job: Resume::OptimizedPdfJob) do
+      post resume_downloads_path(resume), params: { job_description_text: "We need a Ruby engineer." }
+    end
+
+    assert_response :success
+    assert_includes response.body, "Generating your optimized resume PDF"
+  end
+
+  test "downloads can only be enqueued for a resume owned by the current session" do
+    resume = upload_resume
+
+    reset!
+
+    assert_no_enqueued_jobs do
+      post resume_downloads_path(resume), params: { job_description_text: "We need a Ruby engineer." }
+    end
+
+    assert_response :not_found
+  end
+
+  test "serves the cached PDF bytes for a finished download" do
+    resume = upload_resume
+    download_id = SecureRandom.uuid
+    Rails.cache.write(
+      Resume::OptimizedPdfJob.cache_key(download_id),
+      { resume_id: resume.id, bytes: "%PDF-1.4 fake bytes" }
+    )
+
+    get download_path(download_id)
+
+    assert_response :success
+    assert_equal "application/pdf", response.media_type
+    assert_match(/attachment/, response.headers["Content-Disposition"])
+    assert_match(/\A%PDF/, response.body)
+  end
+
+  test "#ready returns no content while the job hasn't finished yet" do
+    get ready_download_path(SecureRandom.uuid)
+
+    assert_response :no_content
+    assert_empty response.body
+  end
+
+  test "#ready renders the ready partial once the job has finished" do
+    resume = upload_resume
+    download_id = SecureRandom.uuid
+    Rails.cache.write(
+      Resume::OptimizedPdfJob.cache_key(download_id),
+      { resume_id: resume.id, bytes: "%PDF-1.4 fake bytes" }
+    )
+
+    get ready_download_path(download_id)
+
+    assert_response :success
+    assert_includes response.body, "Download PDF"
+    assert_includes response.body, download_path(download_id)
+  end
+
+  test "#ready 404s a finished download that belongs to a different session" do
+    resume = upload_resume
+    download_id = SecureRandom.uuid
+    Rails.cache.write(
+      Resume::OptimizedPdfJob.cache_key(download_id),
+      { resume_id: resume.id, bytes: "%PDF-1.4 fake bytes" }
+    )
+
+    reset!
+
+    get ready_download_path(download_id)
+
+    assert_response :not_found
+  end
+
+  test "an expired or missing download_id redirects with an alert instead of erroring" do
+    get download_path(SecureRandom.uuid)
+
+    assert_redirected_to root_path
+    follow_redirect!
+    assert_includes response.body, "expired"
+  end
+
+  test "a finished download cannot be served to a different session even with a valid download_id" do
+    resume = upload_resume
+    download_id = SecureRandom.uuid
+    Rails.cache.write(
+      Resume::OptimizedPdfJob.cache_key(download_id),
+      { resume_id: resume.id, bytes: "%PDF-1.4 fake bytes" }
+    )
+
+    reset!
+
+    get download_path(download_id)
+
+    assert_response :not_found
+  end
+
+  private
+
+  def upload_resume
+    path = write_fixture({ note: "Stub Candidate, stub@example.com" }.to_json)
+    post resumes_path, params: { file: Rack::Test::UploadedFile.new(path, "application/json") }
+    Resume.last
+  ensure
+    File.delete(path) if path && File.exist?(path)
+  end
+
+  def write_fixture(content)
+    path = Rails.root.join("tmp/resume_downloads_test_#{SecureRandom.hex(4)}.json").to_s
+    File.write(path, content)
+    path
+  end
+end

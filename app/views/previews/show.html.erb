@@ -60,7 +60,9 @@
     <p class="text-gray-700"><%= Array(@optimized_resume.skills).select(&:present?).join(", ") %></p>
   <% end %>
 
-  <p class="text-gray-500 text-sm mt-8">
-    Next: downloading this preview as a PDF isn't built yet (see issue #18).
-  </p>
+  <%# data: { turbo: false } is a stopgap -- see issue #47. %>
+  <%= form_with url: resume_downloads_path(@resume), method: :post, data: { turbo: false }, class: "mt-8" do |form| %>
+    <%= form.hidden_field :job_description_text, value: @job_description_text %>
+    <%= form.submit "Download PDF", class: "bg-blue-600 text-white rounded px-4 py-2 cursor-pointer" %>
+  <% end %>
 </div>
