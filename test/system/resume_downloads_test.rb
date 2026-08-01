@@ -6,9 +6,11 @@ class ResumeDownloadsTest < ApplicationSystemTestCase
   # executing) -- that path is already covered precisely, without real-browser
   # flakiness, by test/jobs/resume/optimized_pdf_job_test.rb's
   # assert_turbo_stream_broadcasts. This test exists to prove the real-browser
-  # upload -> preview -> download click actually reaches a subscribed status
-  # page, the one thing an integration test can't verify.
-  test "clicking Download PDF after previewing reaches the generating-status page" do
+  # check match -> preview -> download click actually works end to end, with
+  # every one of those data: turbo: false forms carrying a real, verified CSRF
+  # token (issue #57 / ADR-0013) -- the one thing an integration test can't
+  # verify, since it never renders real forms or carries real tokens.
+  test "checking match, previewing, and downloading all succeed with real CSRF tokens" do
     path = write_fixture({ note: "Stub Candidate, stub@example.com" }.to_json)
 
     visit new_resume_path
@@ -16,6 +18,10 @@ class ResumeDownloadsTest < ApplicationSystemTestCase
     click_on "Upload"
 
     fill_in "job_description_text", with: "We need a Ruby engineer."
+    click_on "Check match"
+
+    assert_text "Match results"
+
     click_on "Preview optimized resume"
 
     assert_text "Optimized resume preview"

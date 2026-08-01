@@ -1,7 +1,9 @@
 # ADR-0010: Accept `data: { turbo: false }` as a stopgap for POST-rendering controllers
 
 ## Status
-Accepted
+Accepted (Amended by [ADR-0013](0013-enable-forgery-protection-in-system-tests.md) — issue #57
+closed the related CSRF-forgery blind spot this ADR's Context/Consequences describe for system
+tests specifically; see ADR-0013 for what's covered now)
 
 ## Context
 ADR-0001 committed this app to a Turbo-driven monolith, which implies Turbo Drive intercepting

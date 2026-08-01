@@ -64,13 +64,20 @@ paste a job description, and get back an ATS-friendly, tailored resume as a down
   `action`; `formaction` submits somewhere else, so the token no longer matches. Fixed (not
   deferred) by giving that button its own `<form>` (correctly scoped, its own valid token) with a
   hidden `job_description_text` field kept in sync with the visible textarea by
-  `app/javascript/controllers/sync_controller.js`. **This class of bug is invisible to every
-  automated test in this repo**: `config/environments/test.rb` sets
+  `app/javascript/controllers/sync_controller.js`. **This class of bug was invisible to every
+  automated test in this repo until issue #57**: `config/environments/test.rb` still sets
   `config.action_controller.allow_forgery_protection = false` (a common, otherwise-reasonable
-  Rails default), so integration and system tests alike never exercise real CSRF verification.
-  Manual browser testing against the dev server (where forgery protection is genuinely active)
-  remains the only way to catch this kind of bug — both this one and the `formaction` issue above
-  were found that way while implementing #18, not by any test in the suite.
+  Rails default) for integration tests, which run in-process and never render real forms or
+  carry tokens — that part is by design, not a gap, since there's nothing real CSRF verification
+  would exercise there. System tests, which do drive real forms in a real browser, now opt back
+  into forgery protection for the duration of each example (`test/application_system_test_case.rb`,
+  see ADR-0010's amendment/ADR-0013), so the exact class of bug that shipped in #17 and was only
+  caught by hand during #18 (and again, deliberately reproduced by hand once more during #57's
+  own implementation) now fails a system test instead of requiring manual browser testing to
+  catch. A dedicated `test/system/forgery_protection_test.rb` guards against this mechanism being
+  silently deleted later. Both this bug and the `formaction` issue above were originally found via
+  manual browser testing against the dev server while implementing #18, not by any test in the
+  suite at the time.
 - **JS/CSS**: `importmap-rails` (no Node build step) + `tailwindcss-rails`. Keeps the Docker
   image Node-free, simplifying the Kamal deploy.
 - **Database**: Postgres only, no Redis. Rails 8's Solid trio (Solid Queue, Solid Cache, Solid
