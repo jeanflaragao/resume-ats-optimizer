@@ -24,12 +24,10 @@
 
   <body>
     <main class="container mx-auto mt-28 px-5 flex flex-col gap-4">
-      <% flash.each do |type, message| %>
-        <p class="rounded px-4 py-2 <%= type.to_s == "alert" ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800" %>">
-          <%= message %>
-        </p>
-      <% end %>
-      <%= yield %>
+      <%= render "layouts/flash" %>
+      <div id="main_content">
+        <%= yield %>
+      </div>
     </main>
   </body>
 </html>
