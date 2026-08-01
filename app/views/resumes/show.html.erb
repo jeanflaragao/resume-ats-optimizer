@@ -11,9 +11,8 @@
     Paste a job posting below to see how this resume matches it.
   </p>
 
-  <%# The "Preview optimized resume" form below still carries data: { turbo: false } -- a
-      stopgap tracked by issue #47, not yet converted to a turbo_stream response (this
-      "Check match" form above was, in #47's first controller conversion).
+  <%# Both forms below were converted to turbo_stream responses by issue #47 and no longer
+      carry data: { turbo: false } -- the download form on previews/show.html.erb is next.
 
       Two separate forms (not one form with a formaction-overridden second button) because
       Rails' per-form CSRF tokens bind a form's authenticity_token to its own declared action
@@ -33,7 +32,7 @@
       <%= form.submit "Check match", class: "bg-blue-600 text-white rounded px-4 py-2 self-start cursor-pointer" %>
     <% end %>
 
-    <%= form_with url: resume_preview_path(@resume), method: :post, data: { turbo: false }, class: "mb-8" do |form| %>
+    <%= form_with url: resume_preview_path(@resume), method: :post, class: "mb-8" do |form| %>
       <%= form.hidden_field :job_description_text, data: { sync_target: "target" } %>
       <%= form.submit "Preview optimized resume", class: "bg-gray-700 text-white rounded px-4 py-2 cursor-pointer" %>
     <% end %>

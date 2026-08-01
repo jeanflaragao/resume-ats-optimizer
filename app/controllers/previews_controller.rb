@@ -11,11 +11,22 @@ class PreviewsController < ApplicationController
 
     if @job_description_text.blank?
       flash.now[:alert] = "Please paste a job description first."
-      return render "resumes/show", status: :unprocessable_entity
+      template = "resumes/show"
+      status = :unprocessable_entity
+    else
+      @optimized_resume = Resume::Optimization.call(resume: @resume, job_description_text: @job_description_text)
+      template = "previews/show"
+      status = :ok
     end
 
-    @optimized_resume = Resume::Optimization.call(resume: @resume, job_description_text: @job_description_text)
-
-    render :show
+    respond_to do |format|
+      format.html { render template, status: status }
+      format.turbo_stream do
+        render turbo_stream: [
+          turbo_stream.update("flash", partial: "layouts/flash"),
+          turbo_stream.update("main_content", template: template)
+        ], status: status
+      end
+    end
   end
 end
