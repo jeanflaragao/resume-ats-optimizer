@@ -13,6 +13,10 @@ class PreviewsController < ApplicationController
       flash.now[:alert] = "Please paste a job description first."
       template = "resumes/show"
       status = :unprocessable_entity
+    elsif @job_description_text.length > MAX_JOB_DESCRIPTION_LENGTH
+      flash.now[:alert] = "That job description is too long (maximum #{MAX_JOB_DESCRIPTION_LENGTH} characters). Please shorten it and try again."
+      template = "resumes/show"
+      status = :unprocessable_entity
     else
       @optimized_resume = Resume::Optimization.call(resume: @resume, job_description_text: @job_description_text)
       template = "previews/show"

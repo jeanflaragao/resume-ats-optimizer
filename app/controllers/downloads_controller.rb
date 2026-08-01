@@ -24,6 +24,10 @@ class DownloadsController < ApplicationController
       flash.now[:alert] = "Please paste a job description first."
       template = "resumes/show"
       status = :unprocessable_entity
+    elsif job_description_text.length > MAX_JOB_DESCRIPTION_LENGTH
+      flash.now[:alert] = "That job description is too long (maximum #{MAX_JOB_DESCRIPTION_LENGTH} characters). Please shorten it and try again."
+      template = "resumes/show"
+      status = :unprocessable_entity
     else
       @download_id = SecureRandom.uuid
       Resume::OptimizedPdfJob.perform_later(

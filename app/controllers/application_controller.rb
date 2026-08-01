@@ -2,6 +2,14 @@ class ApplicationController < ActionController::Base
   # Only allow modern browsers supporting webp images, web push, badges, import maps, CSS nesting, and CSS :has.
   allow_browser versions: :modern
 
+  # Upper bound on job_description_text across every controller that receives
+  # it (JobDescriptionsController, PreviewsController, DownloadsController).
+  # Real job postings are 500–2,000 words (~3,000–12,000 chars). 20,000 chars
+  # is ~2–3× the largest realistic posting and keeps token usage per LLM call
+  # well inside claude-sonnet-4-5's 200,000-token context window even when the
+  # text is embedded once per experience bullet-rewrite call.
+  MAX_JOB_DESCRIPTION_LENGTH = 20_000
+
   private
 
   # Placeholder for real ownership until the Rails 8 auth generator lands (no

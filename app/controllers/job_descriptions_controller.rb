@@ -11,6 +11,9 @@ class JobDescriptionsController < ApplicationController
     if @job_description_text.blank?
       flash.now[:alert] = "Please paste a job description."
       status = :unprocessable_entity
+    elsif @job_description_text.length > MAX_JOB_DESCRIPTION_LENGTH
+      flash.now[:alert] = "That job description is too long (maximum #{MAX_JOB_DESCRIPTION_LENGTH} characters). Please shorten it and try again."
+      status = :unprocessable_entity
     else
       requirements = JobDescription::Extractor.call(text: @job_description_text)
       @comparison = Comparison.call(resume: @resume, requirements: requirements)

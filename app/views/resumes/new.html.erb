@@ -7,6 +7,7 @@
 
   <%= form_with url: resumes_path, method: :post, class: "flex flex-col gap-4" do |form| %>
     <%= form.file_field :file, accept: ".pdf,.json", required: true, class: "border rounded p-2" %>
+    <p class="text-sm text-gray-500">Accepted formats: PDF, JSON. Maximum file size: <%= ResumesController::MAX_UPLOAD_BYTES / 1024 / 1024 %> MB.</p>
     <%= form.submit "Upload", class: "bg-blue-600 text-white rounded px-4 py-2 self-start cursor-pointer" %>
   <% end %>
 </div>

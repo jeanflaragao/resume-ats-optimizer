@@ -37,6 +37,18 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "Generating your optimized resume PDF"
   end
 
+  test "a job description text over MAX_JOB_DESCRIPTION_LENGTH re-renders the resume's show page with an error, no job enqueued" do
+    resume = upload_resume
+    oversized_text = "a" * (ApplicationController::MAX_JOB_DESCRIPTION_LENGTH + 1)
+
+    assert_no_enqueued_jobs do
+      post resume_downloads_path(resume), params: { job_description_text: oversized_text }
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes response.body, "too long"
+  end
+
   test "downloads can only be enqueued for a resume owned by the current session" do
     resume = upload_resume
 
