@@ -1,7 +1,7 @@
 # ADR-0002: Use Rails 8's Solid Queue/Cache/Cable instead of Redis
 
 ## Status
-Accepted
+Accepted (Amended by [ADR-0012](0012-wire-solid-cache-as-production-cache-store.md))
 
 ## Context
 The product needs background job processing (LLM calls and PDF rendering are slow and
