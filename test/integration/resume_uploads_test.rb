@@ -48,6 +48,7 @@ class ResumeUploadsTest < ActionDispatch::IntegrationTest
   test "a rollback during import re-renders the form with an error and creates nothing" do
     path = write_fixture({ note: "irrelevant" }.to_json)
     invalid_error = ActiveRecord::RecordInvalid.new(Resume.new)
+    original_call = Resume::Import.method(:call)
     Resume::Import.define_singleton_method(:call) { |**| raise invalid_error }
 
     assert_no_difference "Resume.count" do
@@ -57,7 +58,7 @@ class ResumeUploadsTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
     assert_includes response.body, "couldn&#39;t process"
   ensure
-    Resume::Import.singleton_class.send(:remove_method, :call)
+    Resume::Import.define_singleton_method(:call, original_call)
     File.delete(path) if path && File.exist?(path)
   end
 
