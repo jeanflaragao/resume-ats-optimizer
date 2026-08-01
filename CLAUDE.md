@@ -442,6 +442,35 @@ Otherwise standard Rails 8 conventions.
   deployment doesn't exist yet — `config/deploy.yml` was never actually created despite this
   file referencing it, so #18's Solid Queue worker has nowhere to run in production yet).
 
+## Repository setup (issue #46)
+
+- **CI** (`.github/workflows/ci.yml`, scaffolded with the app, fixed in #46): four parallel jobs
+  on every push to `master` and every PR — `test` (`bin/rails db:prepare test test:system`,
+  Postgres 16 service container, Chrome installed for system tests; SimpleCov's
+  `minimum_coverage 90` in `test/test_helper.rb` already fails this job below that threshold, no
+  separate coverage-gate step needed), `lint` (`bin/rubocop`), `scan_ruby` (`bin/brakeman`),
+  `scan_js` (`bin/importmap audit`). The originally-scaffolded workflow called
+  `db:test:prepare`, a rake task that doesn't exist in Rails 8 — would have failed the `test` job
+  outright; fixed to `db:prepare` (already `RAILS_ENV`-scoped to the test database).
+- **Branch protection on `master`**: required status checks = all four CI job names above,
+  `strict` (branches must be up to date before merging), `enforce_admins` (no bypass, including
+  for the repo owner), no direct pushes. **Required making the repo public** — GitHub's Free plan
+  doesn't support branch protection (classic or the newer Rulesets API) on private repos at all;
+  confirmed by both APIs returning "Upgrade to GitHub Pro or make this repository public." Git
+  history was checked first and confirmed clean (no `.env`, no `master.key`, no committed
+  credentials — `.env` was never anything but gitignored, per the Local development section).
+- **Secret scanning + push protection**: both enabled (`security_and_analysis.secret_scanning` /
+  `.secret_scanning_push_protection`, both `"enabled"`). Also blocked on the private tier
+  (GitHub Advanced Security, a paid add-on) until the repo went public.
+- **Dependabot**: `.github/dependabot.yml` (also scaffolded with the app) keeps its original
+  config — automatic version-update PRs for both `bundler` and `github-actions`, daily, up to 10
+  open PRs each. Vulnerability alerts (`GET /repos/:owner/:repo/vulnerability-alerts` → `204`)
+  are separately confirmed enabled — a distinct repo-level toggle from this file, which only
+  governs general version-bump PRs, not vulnerability notifications.
+- All four settings above were re-verified with a fresh `gh api` read after each change, not
+  just trusted from the mutating call's own response (the `secret_scanning_push_protection`
+  PATCH once returned 200 with the field still showing `disabled` in its own response body).
+
 ## Next steps for Claude
 
 As the pipeline issues (#6 onward) add real structure (jobs, controllers, views), update the
