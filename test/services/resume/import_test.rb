@@ -47,6 +47,30 @@ class Resume::ImportTest < ActiveSupport::TestCase
     end
   end
 
+  test "drops a blank-company experience instead of rolling back the whole import" do
+    # The second experience's title ("Store Manager") is deliberately genuine
+    # (present in source_text) so it passes its own verification - isolating
+    # the blank company field as the only reason that entry should be
+    # dropped, rather than accidentally passing because of an unrelated
+    # "title not found" mismatch.
+    source_text = "Jane Doe. Experience: Senior Engineer at Acme Corp, 2020-01 to present. Also worked as Store Manager."
+    fake_chat = FakeChat.new({
+      "name" => "Jane Doe", "email" => nil, "phone" => nil, "summary" => nil,
+      "skills" => [],
+      "experiences" => [
+        { "company" => "Acme Corp", "title" => "Senior Engineer", "location" => nil, "starts_on" => "2020-01", "ends_on" => nil, "bullets" => [] },
+        { "company" => "", "title" => "Store Manager", "location" => nil, "starts_on" => nil, "ends_on" => nil, "bullets" => [] }
+      ],
+      "educations" => []
+    })
+
+    resume = assert_difference "Resume.count", 1 do
+      Resume::Import.call(file: fixture_path(source_text), strategy: "llm", chat: fake_chat)
+    end
+
+    assert_equal [ "Acme Corp" ], resume.experiences.map(&:company)
+  end
+
   test "forwards a custom chat: to the Llm extractor when strategy is llm" do
     fake_chat = FakeChat.new({
       "name" => "Jane Doe", "email" => nil, "phone" => nil, "summary" => nil,

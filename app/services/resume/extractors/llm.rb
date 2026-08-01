@@ -109,6 +109,11 @@ class Resume::Extractors::Llm
     company = experience["company"]
     title = experience["title"]
 
+    if company.blank? || title.blank?
+      warn_drop("experience entry", "company #{company.inspect} / title #{title.inspect}", "required field blank")
+      return nil
+    end
+
     unless word_boundary_match?(company.to_s, source_text) && word_boundary_match?(title.to_s, source_text)
       warn_drop("experience entry", "company #{company.inspect} / title #{title.inspect}", "not found in source text")
       return nil
@@ -124,6 +129,11 @@ class Resume::Extractors::Llm
 
   def verified_education(education)
     school = education["school"]
+
+    if school.blank?
+      warn_drop("education entry", "school #{school.inspect}", "required field blank")
+      return nil
+    end
 
     unless word_boundary_match?(school.to_s, source_text)
       warn_drop("education entry", "school #{school.inspect}", "not found in source text")

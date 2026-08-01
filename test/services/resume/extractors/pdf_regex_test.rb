@@ -40,6 +40,23 @@ class Resume::Extractors::PdfRegexTest < ActiveSupport::TestCase
     File.delete(path) if path && File.exist?(path)
   end
 
+  test "does not emit an experience entry when the header has no company line" do
+    path = Rails.root.join("tmp/pdf_regex_test_no_company.pdf").to_s
+    Prawn::Document.generate(path) do
+      text "Jane Doe", size: 20
+      text "Experience"
+      text "Freelance Consultant"
+      text "Jan 2020 - Present"
+      text "• Did freelance work"
+    end
+
+    result = Resume::Extractors::PdfRegex.call(file_path: path)
+
+    assert_equal [], result["experiences"]
+  ensure
+    File.delete(path) if path && File.exist?(path)
+  end
+
   private
 
   def sample_pdf_path
