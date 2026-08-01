@@ -22,15 +22,28 @@ class DownloadsController < ApplicationController
 
     if job_description_text.blank?
       flash.now[:alert] = "Please paste a job description first."
-      return render "resumes/show", status: :unprocessable_entity
+      template = "resumes/show"
+      status = :unprocessable_entity
+    else
+      @download_id = SecureRandom.uuid
+      Resume::OptimizedPdfJob.perform_later(
+        resume_id: @resume.id,
+        job_description_text: job_description_text,
+        download_id: @download_id
+      )
+      template = "downloads/create"
+      status = :ok
     end
 
-    @download_id = SecureRandom.uuid
-    Resume::OptimizedPdfJob.perform_later(
-      resume_id: @resume.id,
-      job_description_text: job_description_text,
-      download_id: @download_id
-    )
+    respond_to do |format|
+      format.html { render template, status: status }
+      format.turbo_stream do
+        render turbo_stream: [
+          turbo_stream.update("flash", partial: "layouts/flash"),
+          turbo_stream.update("main_content", template: template)
+        ], status: status
+      end
+    end
   end
 
   def show
