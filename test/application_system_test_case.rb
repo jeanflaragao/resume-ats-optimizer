@@ -3,9 +3,10 @@ require "test_helper"
 class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
   # config/environments/test.rb disables forgery protection app-wide so integration tests
   # (which never render real forms or carry tokens) don't have to fake one on every post.
-  # System tests exercise the app's real data: turbo: false forms through a real browser, so
-  # they opt back in for the duration of each example -- this is what actually catches CSRF
-  # bugs like the formaction issue from #17/#18 (see issue #57 / ADR-0013). Restoring the
+  # System tests exercise the app's real forms through a real browser (turbo_stream-submitted
+  # since issue #47, previously data: turbo: false), so they opt back in for the duration of
+  # each example -- this is what actually catches CSRF bugs like the formaction issue from
+  # #17/#18 (see issue #57 / ADR-0013). Restoring the
   # previous value in teardown, rather than hardcoding false, keeps this correct if
   # config/environments/test.rb's own default ever changes. Scoped to system tests only:
   # flipping this in config/environments/test.rb itself would fail every post in

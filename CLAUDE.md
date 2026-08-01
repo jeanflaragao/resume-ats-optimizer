@@ -32,9 +32,10 @@ wiring the already-existing `Resume::Optimization` to a second button on that sa
 new `app/views/previews/show.html.erb` — see Project layout below), and the PDF download flow
 exists (issue #18: `DownloadsController` + `Resume::OptimizedPdfJob`, the app's first real
 Solid Queue/Turbo Stream usage — see Project layout below). Phase 5 (Frontend) is complete;
-follow-up infrastructure issues #47 (Turbo Drive `data: turbo: false` stopgap — see Stack) and
-#48 (Kamal deployment doesn't exist yet, so the Solid Queue worker has nowhere to actually run
-in production) remain open. The project is named
+issue #47 (the Turbo Drive `data: turbo: false` stopgap — see Stack) is closed. Follow-up
+infrastructure issue #48 (Kamal deployment doesn't exist yet, so the Solid Queue worker has
+nowhere to actually run in production) remains open, alongside two smaller UX follow-ups #47
+itself surfaced rather than fixed (#65, #66 — see Stack). The project is named
 `resume-ats-optimizer`, a hosted, multi-user tool for
 optimizing resumes against Applicant Tracking Systems (ATS): upload a LinkedIn data export,
 paste a job description, and get back an ATS-friendly, tailored resume as a downloadable PDF.
@@ -46,16 +47,36 @@ paste a job description, and get back an ATS-friendly, tailored resume as a down
 - **App structure**: standard Rails app (not `--api` mode) — server-rendered views with Turbo
   Frames/Streams driving the upload → analyze → preview → download flow, Stimulus for light
   client-side interactivity. No separate JS frontend framework or hand-rolled JSON API.
-  **Known deviation (issue #47)**: `JobDescriptionsController#create` (#16), `PreviewsController#
-  create` (#17), and `DownloadsController#create` (#18) all `render` an HTML template directly in
-  response to a POST — Turbo Drive rejects that client-side ("Form responses must redirect to
-  another location") unless the response is either a redirect or `turbo_stream`. This was only
-  caught once #18 added the repo's first system test (`test/system/resume_downloads_test.rb`) —
-  no earlier issue had one, since integration tests don't run real browser JS and can't see Turbo
-  Drive reject a response. Current stopgap: both affected forms (`resumes/show.html.erb`,
-  `previews/show.html.erb`) have `data: { turbo: false }`, forcing a real full-page submit instead
-  of a Turbo-intercepted fetch. #47 tracks converting all three actions to real `turbo_stream`
-  responses instead, which is what this bullet's own architecture actually calls for.
+  **Resolved (issue #47)**: `JobDescriptionsController#create` (#16), `PreviewsController#
+  create` (#17), and `DownloadsController#create` (#18) originally all `render`ed an HTML
+  template directly in response to a POST — Turbo Drive rejects that client-side ("Form
+  responses must redirect to another location") unless the response is either a redirect or
+  `turbo_stream`. This was only caught once #18 added the repo's first system test
+  (`test/system/resume_downloads_test.rb`) — no earlier issue had one, since integration tests
+  don't run real browser JS and can't see Turbo Drive reject a response. The interim stopgap
+  (`data: { turbo: false }` on all three affected forms, forcing a real full-page submit instead
+  of a Turbo-intercepted fetch) is gone: all three actions now `respond_to` with both
+  `format.html` (declared first — empirically, a plain integration-test POST never sends an
+  `Accept` header that could make declaration order matter, confirmed via `bin/rails runner`,
+  but it costs nothing to be defensive) and `format.turbo_stream`. Every `format.turbo_stream`
+  branch renders the *exact same template* `format.html` renders for that branch — no new
+  partials, so the two formats can't drift the way the bugs below did — via two
+  `turbo_stream.update` actions against two ids the layout now always provides:
+  `div#main_content` (wraps `yield` in `app/views/layouts/application.html.erb`) and `div#flash`
+  (the flash loop, extracted to `app/views/layouts/_flash.html.erb`, given Tailwind's
+  `empty:hidden` so an always-present-but-empty flash container doesn't add gap spacing on
+  flashless pages — `<main>` is `flex flex-col gap-4`, so this needed checking, not assuming).
+  Swapping the *entire* `main_content` region (rather than smaller, targeted streams) is a
+  deliberate tradeoff, not a neutral default: it buys single-template parity between formats at
+  the cost of destroying whatever element currently has focus on every swap (focus falls to
+  `<body>`, a real accessibility regression relative to the full navigation this replaces) —
+  recorded, with the alternative it forwent, in ADR-0010's amendment. The address bar no longer
+  changes across any of the three flows post-conversion either (a `turbo_stream` response never
+  pushes history), which surfaced two follow-ups filed rather than fixed in #47: #65
+  (`DownloadsController`'s already-UI-unreachable blank-input error render becomes more
+  confusing, not less, once there's no URL change to hint at what happened) and #66 (refreshing
+  mid-download now silently strands an already-generated PDF, since nothing survives the
+  refresh to reconstruct the in-flight `download_id` from).
   **A second, since-fixed bug found the same way**: `resumes/show.html.erb`'s "Preview optimized
   resume" button originally shared one `<form>` with "Check match" via a `formaction`-overridden
   submit button (same textarea, two destinations) — this crashed with

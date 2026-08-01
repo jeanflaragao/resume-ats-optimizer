@@ -10,13 +10,22 @@ class JobDescriptionsController < ApplicationController
 
     if @job_description_text.blank?
       flash.now[:alert] = "Please paste a job description."
-      return render "resumes/show", status: :unprocessable_entity
+      status = :unprocessable_entity
+    else
+      requirements = JobDescription::Extractor.call(text: @job_description_text)
+      @comparison = Comparison.call(resume: @resume, requirements: requirements)
+      @match_score = MatchScore.call(comparison: @comparison)
+      status = :ok
     end
 
-    requirements = JobDescription::Extractor.call(text: @job_description_text)
-    @comparison = Comparison.call(resume: @resume, requirements: requirements)
-    @match_score = MatchScore.call(comparison: @comparison)
-
-    render "resumes/show"
+    respond_to do |format|
+      format.html { render "resumes/show", status: status }
+      format.turbo_stream do
+        render turbo_stream: [
+          turbo_stream.update("flash", partial: "layouts/flash"),
+          turbo_stream.update("main_content", template: "resumes/show")
+        ], status: status
+      end
+    end
   end
 end

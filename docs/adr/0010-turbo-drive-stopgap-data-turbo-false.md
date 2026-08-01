@@ -1,9 +1,13 @@
 # ADR-0010: Accept `data: { turbo: false }` as a stopgap for POST-rendering controllers
 
 ## Status
-Accepted (Amended by [ADR-0013](0013-enable-forgery-protection-in-system-tests.md) — issue #57
-closed the related CSRF-forgery blind spot this ADR's Context/Consequences describe for system
-tests specifically; see ADR-0013 for what's covered now)
+Superseded by [ADR-0014](0014-convert-post-controllers-to-turbo-stream-responses.md) — issue #47
+converted all three affected actions to real `turbo_stream` responses and removed
+`data: { turbo: false }` from all three forms; see ADR-0014 for what replaced this stopgap and
+what it cost. (Previously amended, not superseded, by
+[ADR-0013](0013-enable-forgery-protection-in-system-tests.md) — issue #57 closed the related
+CSRF-forgery blind spot this ADR's Context/Consequences describe for system tests specifically;
+see ADR-0013 for what was covered before #47 landed.)
 
 ## Context
 ADR-0001 committed this app to a Turbo-driven monolith, which implies Turbo Drive intercepting

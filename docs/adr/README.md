@@ -17,7 +17,8 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0007 | Use Rails 8's built-in auth generator (not Devise), with a temporary owner_token placeholder | Accepted | [0007-rails8-auth-and-owner-token-placeholder.md](0007-rails8-auth-and-owner-token-placeholder.md) |
 | 0008 | Make the repository public to unlock branch protection and secret scanning | Accepted | [0008-public-repo-for-branch-protection.md](0008-public-repo-for-branch-protection.md) |
 | 0009 | Configure Dependabot for automatic version-update PRs, not just vulnerability alerts | Accepted | [0009-dependabot-automatic-version-prs.md](0009-dependabot-automatic-version-prs.md) |
-| 0010 | Accept `data: { turbo: false }` as a stopgap for POST-rendering controllers | Accepted | [0010-turbo-drive-stopgap-data-turbo-false.md](0010-turbo-drive-stopgap-data-turbo-false.md) |
+| 0010 | Accept `data: { turbo: false }` as a stopgap for POST-rendering controllers | Superseded by 0014 | [0010-turbo-drive-stopgap-data-turbo-false.md](0010-turbo-drive-stopgap-data-turbo-false.md) |
 | 0011 | Drop unused ActiveStorage/ActionText/ActionMailbox from the dependency tree | Accepted | [0011-drop-unused-active-storage-action-text-mailbox.md](0011-drop-unused-active-storage-action-text-mailbox.md) |
 | 0012 | Wire Solid Cache as the production cache store | Accepted | [0012-wire-solid-cache-as-production-cache-store.md](0012-wire-solid-cache-as-production-cache-store.md) |
 | 0013 | Enable CSRF forgery protection for system tests only | Accepted | [0013-enable-forgery-protection-in-system-tests.md](0013-enable-forgery-protection-in-system-tests.md) |
+| 0014 | Convert JobDescriptions/Previews/Downloads to turbo_stream responses | Accepted | [0014-convert-post-controllers-to-turbo-stream-responses.md](0014-convert-post-controllers-to-turbo-stream-responses.md) |
