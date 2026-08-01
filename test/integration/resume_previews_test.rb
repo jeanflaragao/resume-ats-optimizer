@@ -41,6 +41,53 @@ class ResumePreviewsTest < ActionDispatch::IntegrationTest
     assert_not_includes response.body, "Optimized resume preview"
   end
 
+  test "an LLM daily limit error on preview redirects with an actionable message" do
+    resume = upload_resume
+    original_call = Resume::Optimization.method(:call)
+    Resume::Optimization.define_singleton_method(:call) { |**| raise LlmCallGuard::DailyLimitExceededError, "Daily LLM call cap (10) exceeded" }
+
+    post resume_preview_path(resume), params: { job_description_text: "We need a Ruby engineer." }
+
+    assert_redirected_to root_path
+    follow_redirect!
+    assert_includes response.body, "processing limit"
+  ensure
+    Resume::Optimization.define_singleton_method(:call, original_call)
+  end
+
+  test "an LLM service error on preview redirects and does not log PII" do
+    resume = upload_resume
+    secret_jd = "SECRET PREVIEW JD CONTENT MUST NOT BE LOGGED"
+    original_call = Resume::Optimization.method(:call)
+    Resume::Optimization.define_singleton_method(:call) { |**| raise RubyLLM::OverloadedError.new(secret_jd) }
+
+    log_output = with_captured_log do
+      post resume_preview_path(resume), params: { job_description_text: secret_jd }
+    end
+
+    assert_redirected_to root_path
+    follow_redirect!
+    assert_includes response.body, "unavailable"
+    assert_not_includes log_output, secret_jd
+  ensure
+    Resume::Optimization.define_singleton_method(:call, original_call)
+  end
+
+  test "a MismatchedBulletCountError on preview redirects with an actionable message" do
+    resume = upload_resume
+    resume.experiences.create!(company: "Acme", title: "Engineer", bullets: [ "Built REST APIs" ], position: 1)
+    original_call = BulletRewriter.method(:call)
+    BulletRewriter.define_singleton_method(:call) { |**| raise BulletRewriter::MismatchedBulletCountError, "Expected 1 rewritten bullets, got 0" }
+
+    post resume_preview_path(resume), params: { job_description_text: "We need a Ruby engineer." }
+
+    assert_redirected_to root_path
+    follow_redirect!
+    assert_includes response.body, "trouble"
+  ensure
+    BulletRewriter.define_singleton_method(:call, original_call)
+  end
+
   test "a preview can only be requested for a resume owned by the current session" do
     resume = upload_resume
 

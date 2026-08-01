@@ -24,7 +24,12 @@ class Resume::OptimizedPdfJob < ApplicationJob
       locals: { download_id: download_id }
     )
   rescue StandardError => e
-    Rails.logger.error("Resume::OptimizedPdfJob failed for resume #{resume_id}: #{e.class}: #{e.message}")
+    # Log only the exception class — never the message. The job catches any
+    # StandardError, so we can't know at this level whether e.message is safe:
+    # RubyLLM::Error's message falls back to response.body (raw API JSON), which
+    # could contain request content in edge cases. Class-only is always safe
+    # and still sufficient to route the error to the right on-call runbook.
+    Rails.logger.error("Resume::OptimizedPdfJob failed for resume #{resume_id}: #{e.class}")
     Turbo::StreamsChannel.broadcast_replace_to(
       "download_#{download_id}",
       target: "download_status",
