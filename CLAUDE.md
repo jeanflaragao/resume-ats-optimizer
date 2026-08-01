@@ -330,9 +330,10 @@ Otherwise standard Rails 8 conventions.
   preview-then-download flow re-requesting the same pair" rather than caching, so #18 is expected
   to independently call `Resume::Optimization` again at download time. Renders a Tailwind HTML
   template (not an embedded/iframed PDF — cheaper, avoids a wasted Prawn render on every preview,
-  and #18 renders the real PDF anyway) mirroring `Resume::Pdf`'s section order and blank-guarding;
-  a new `ApplicationHelper#date_range` factors out the one bit of formatting logic
-  `Resume::Pdf#date_range` also has, shared between the Experience/Education sections. Stays
+  and #18 renders the real PDF anyway) mirroring `Resume::Pdf`'s section order and blank-guarding,
+  including its date-range formatting (inlined per-section rather than extracted — two call sites
+  in one file, and `Resume::Pdf#date_range` stays a private implementation detail of that
+  service rather than being pulled into a shared helper). Stays
   synchronous (no Solid Queue), consistent with #16 — that wiring remains #18's scope per
   `Resume::Optimization`'s own doc comment. Routes: `resources :resumes { resource :preview, only:
   :create }`. Reuses `find_owned_resume!` (#16). Covered by

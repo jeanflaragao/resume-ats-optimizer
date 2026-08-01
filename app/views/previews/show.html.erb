@@ -20,8 +20,13 @@
         <p class="font-medium">
           <%= [ experience.title, experience.company ].select(&:present?).join(", ") %>
         </p>
+        <% if experience.starts_on.present? || experience.ends_on.present? %>
+          <% starts_text = experience.starts_on&.strftime("%b %Y") %>
+          <% ends_text = experience.ends_on ? experience.ends_on.strftime("%b %Y") : "Present" %>
+          <% date_text = [ starts_text, ends_text ].compact.join(" - ") %>
+        <% end %>
         <p class="text-sm text-gray-500">
-          <%= [ experience.location, date_range(experience.starts_on, experience.ends_on) ].select(&:present?).join(" | ") %>
+          <%= [ experience.location, date_text ].select(&:present?).join(" | ") %>
         </p>
         <ul class="list-disc list-inside text-gray-700">
           <% Array(experience.bullets).select(&:present?).each do |bullet| %>
@@ -38,8 +43,13 @@
       <div class="mb-4">
         <p class="font-medium"><%= education.school %></p>
         <% detail = [ education.degree, education.field_of_study ].select(&:present?).join(", ") %>
+        <% if education.starts_on.present? || education.ends_on.present? %>
+          <% starts_text = education.starts_on&.strftime("%b %Y") %>
+          <% ends_text = education.ends_on ? education.ends_on.strftime("%b %Y") : "Present" %>
+          <% date_text = [ starts_text, ends_text ].compact.join(" - ") %>
+        <% end %>
         <p class="text-sm text-gray-500">
-          <%= [ detail, date_range(education.starts_on, education.ends_on) ].select(&:present?).join(" | ") %>
+          <%= [ detail, date_text ].select(&:present?).join(" | ") %>
         </p>
       </div>
     <% end %>
