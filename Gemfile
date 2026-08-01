@@ -1,7 +1,18 @@
 source "https://rubygems.org"
 
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
-gem "rails", "~> 8.1.3"
+# Individual framework gems (not the "rails" meta-gem) so ActiveStorage/ActionText/
+# ActionMailbox never resolve into Gemfile.lock at all (see ADR-0011) — only the frameworks
+# actually required in config/application.rb.
+gem "railties", "~> 8.1.3"
+gem "activesupport", "~> 8.1.3"
+gem "activemodel", "~> 8.1.3"
+gem "activerecord", "~> 8.1.3"
+gem "actionpack", "~> 8.1.3"
+gem "actionview", "~> 8.1.3"
+gem "activejob", "~> 8.1.3"
+gem "actioncable", "~> 8.1.3"
+gem "actionmailer", "~> 8.1.3"
 # The modern asset pipeline for Rails [https://github.com/rails/propshaft]
 gem "propshaft"
 # Use postgresql as the database for Active Record
@@ -38,9 +49,6 @@ gem "kamal", require: false
 
 # Add HTTP asset caching/compression and X-Sendfile acceleration to Puma [https://github.com/basecamp/thruster/]
 gem "thruster", require: false
-
-# Use Active Storage variants [https://guides.rubyonrails.org/active_storage_overview.html#transforming-images]
-# gem "image_processing", "~> 1.2"
 
 # Claude API client, used for job-requirement extraction and bullet rewriting
 gem "ruby_llm"
