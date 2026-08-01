@@ -395,7 +395,9 @@ Otherwise standard Rails 8 conventions.
   (`downloads/create.html.erb`) subscribed via `turbo_stream_from "download_#{download_id}"`.
   The job re-runs `Resume::Optimization` (#13) → `Resume::Pdf` (#12) — deliberately not reusing
   whatever #17's preview already computed, see below — then `Rails.cache.write`s the bytes
-  (Solid Cache, no new schema/table for a transient artifact) and broadcasts a
+  (intended as Solid Cache, no new schema/table for a transient artifact — though the production
+  cache store was never actually wired up until issue #54 closed the gap; see ADR-0012) and
+  broadcasts a
   `turbo_stream.replace` of `#download_status` to either `downloads/_ready` (a link to
   `DownloadsController#show`) or `downloads/_failed` (rescued error path, so a raised exception
   doesn't leave the user staring at "Generating..." forever). **A second, real race was found and
