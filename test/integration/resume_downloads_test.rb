@@ -99,6 +99,38 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, download_path(download_id)
   end
 
+  # The success path already had this fallback; the failure path did not, so a
+  # broadcast lost to #72's race left the page on "Generating..." forever.
+  test "#ready renders the failure reason once a job has failed, not no_content" do
+    resume = upload_resume
+    download_id = SecureRandom.uuid
+    Rails.cache.write(
+      Resume::OptimizedPdfJob.cache_key(download_id),
+      { resume_id: resume.id, error: "Chinese, Japanese, or Korean characters aren't supported yet." }
+    )
+
+    get ready_download_path(download_id)
+
+    assert_response :success
+    assert_includes response.body, "Chinese, Japanese, or Korean characters"
+    assert_not_includes response.body, "Download PDF"
+  end
+
+  test "a failed download's show action explains the failure instead of claiming the link expired" do
+    resume = upload_resume
+    download_id = SecureRandom.uuid
+    Rails.cache.write(
+      Resume::OptimizedPdfJob.cache_key(download_id),
+      { resume_id: resume.id, error: "Chinese, Japanese, or Korean characters aren't supported yet." }
+    )
+
+    get download_path(download_id)
+
+    assert_redirected_to root_path
+    follow_redirect!
+    assert_includes response.body, "Chinese, Japanese, or Korean characters"
+  end
+
   test "#ready 404s a finished download that belongs to a different session" do
     resume = upload_resume
     download_id = SecureRandom.uuid

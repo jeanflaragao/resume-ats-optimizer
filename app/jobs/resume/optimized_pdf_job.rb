@@ -10,6 +10,25 @@ class Resume::OptimizedPdfJob < ApplicationJob
 
   CACHE_EXPIRY = 15.minutes
 
+  GENERIC_FAILURE_MESSAGE = "Something went wrong generating your PDF. Please try again.".freeze
+
+  # Maps Resume::Pdf's log-safe Unicode block names onto phrasing a candidate
+  # would recognise. Names the script that isn't supported without echoing any
+  # of the user's own text back into the page.
+  UNSUPPORTED_SCRIPT_LABELS = {
+    "CJK Unified Ideographs" => "Chinese, Japanese, or Korean characters",
+    "CJK Unified Ideographs Extension A" => "Chinese, Japanese, or Korean characters",
+    "Hiragana" => "Japanese characters",
+    "Katakana" => "Japanese characters",
+    "Hangul Syllables" => "Korean characters",
+    "Hebrew" => "Hebrew characters",
+    "Arabic" => "Arabic characters",
+    "Devanagari" => "Devanagari characters",
+    "Emoji and Pictographs" => "emoji",
+    "Miscellaneous Symbols" => "symbols",
+    "Arrows" => "symbols"
+  }.freeze
+
   def perform(resume_id:, job_description_text:, download_id:)
     resume = Resume.find(resume_id)
     optimized = Resume::Optimization.call(resume: resume, job_description_text: job_description_text)
@@ -23,18 +42,21 @@ class Resume::OptimizedPdfJob < ApplicationJob
       partial: "downloads/ready",
       locals: { download_id: download_id }
     )
+  rescue Resume::Pdf::UnrenderableCharacterError => e
+    # Safe to log the message here, unlike the blanket rescue below: this error
+    # is constructed by Resume::Pdf and carries only a Unicode block name and a
+    # count, never the offending characters or their codepoints (ADR-0015).
+    Rails.logger.error("Resume::OptimizedPdfJob failed for resume #{resume_id}: #{e.class} (#{e.message})")
+    record_failure(resume_id, download_id, unsupported_script_message(e))
+    raise
   rescue StandardError => e
-    # Log only the exception class — never the message. The job catches any
+    # Log only the exception class — never the message. This clause catches any
     # StandardError, so we can't know at this level whether e.message is safe:
     # RubyLLM::Error's message falls back to response.body (raw API JSON), which
     # could contain request content in edge cases. Class-only is always safe
     # and still sufficient to route the error to the right on-call runbook.
     Rails.logger.error("Resume::OptimizedPdfJob failed for resume #{resume_id}: #{e.class}")
-    Turbo::StreamsChannel.broadcast_replace_to(
-      "download_#{download_id}",
-      target: "download_status",
-      partial: "downloads/failed"
-    )
+    record_failure(resume_id, download_id, nil)
     raise
   end
 
@@ -46,5 +68,34 @@ class Resume::OptimizedPdfJob < ApplicationJob
 
   def cache_key(download_id)
     self.class.cache_key(download_id)
+  end
+
+  # Records the failure in the cache as well as broadcasting it. The broadcast
+  # alone is not enough: it can fire before the page's ActionCable subscription
+  # connects and is then lost forever (issue #72), and DownloadsController#ready
+  # -- the existing fallback for exactly that race -- could previously only see
+  # successes, so a missed failure left the page on "Generating..." indefinitely.
+  # This is the minimum needed to make a failure observable to a late
+  # subscriber; it deliberately does not touch #72's polling design.
+  def record_failure(resume_id, download_id, message)
+    Rails.cache.write(
+      cache_key(download_id),
+      { resume_id: resume_id, error: message || GENERIC_FAILURE_MESSAGE },
+      expires_in: CACHE_EXPIRY
+    )
+    Turbo::StreamsChannel.broadcast_replace_to(
+      "download_#{download_id}",
+      target: "download_status",
+      partial: "downloads/failed",
+      locals: { message: message }
+    )
+  end
+
+  def unsupported_script_message(error)
+    subjects = error.blocks.filter_map { |block| UNSUPPORTED_SCRIPT_LABELS[block] }.uniq
+
+    "We can't generate a PDF for this resume yet — it contains " \
+    "#{subjects.presence&.to_sentence || 'characters'} that our PDF template doesn't support. " \
+    "The preview on screen shows them correctly. Retrying will not help; support for this is being tracked."
   end
 end

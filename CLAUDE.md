@@ -92,8 +92,10 @@ and Project layout below where relevant.
   persist prompt/response pairs against ActiveRecord, which the anti-hallucination safeguard
   tests need to inspect.
 - **PDF generation**: Prawn (pure Ruby, programmatic), not Grover/Puppeteer. The required resume
-  template is deliberately simple — no tables, columns, or images, standard fonts — so
-  Prawn's flow layout is sufficient and avoids bundling headless Chrome into the Kamal image.
+  template is deliberately simple — no tables, columns, or images — so Prawn's flow layout is
+  sufficient and avoids bundling headless Chrome into the Kamal image. Fonts are **embedded from
+  `vendor/fonts/`, not Prawn's built-in base-14 faces**, which are Windows-1252 only and crashed on
+  any name outside that set (ADR-0018).
 - **LinkedIn export parsing**: two selectable strategies (issue #4) — an LLM extractor that sends
   the uploaded file straight to Claude via RubyLLM's structured output (`with_schema`, robust to
   arbitrary resume layouts — though issue #11 added a `pdf-reader` read of the same file
@@ -213,7 +215,13 @@ Otherwise standard Rails 8 conventions.
 - **`app/services/resume/pdf.rb`**: `Resume::Pdf.call(resume:)` — Prawn, single-column PDF.
   Header → Summary → Experience → Education → Skills, each section skipped when blank.
   Duck-typed against `resume` (no `ActiveRecord`-specific calls), which lets
-  `Resume::Optimization` below feed it a non-persisted value object unchanged.
+  `Resume::Optimization` below feed it a non-persisted value object unchanged. Renders in embedded
+  Liberation Sans (metric-compatible with Helvetica, so the layout is unchanged) with DejaVu Sans
+  as a glyph fallback. Prawn draws a missing glyph as an invisible `.notdef` rather than raising,
+  so a pre-render guard raises `Resume::Pdf::UnrenderableCharacterError` for any script no embedded
+  font covers (CJK, Hebrew, Arabic, Devanagari, emoji) instead of shipping a blank name line — see
+  ADR-0018. The error carries a Unicode block name and a count, never the characters or codepoints
+  (ADR-0015: for a CJK name the codepoints *are* the name).
 - **`app/services/resume/optimization.rb`**: `Resume::Optimization.call(resume:,
   job_description_text:, chat: LlmCallGuard.chat)` bridges `BulletRewriter` and `Resume::Pdf` —
   runs `BulletRewriter` once per experience, returns a `Resume::Optimization::Result`
@@ -249,7 +257,9 @@ Otherwise standard Rails 8 conventions.
   `downloads/_ready` or `_failed`. A broadcast can arrive before the page's ActionCable
   subscription connects, so `DownloadsController#ready` gives a one-shot fallback check on
   connect — see [issue #72](https://github.com/jeanflaragao/resume-ats-optimizer/issues/72) for
-  revisiting this properly. `show` re-verifies ownership via `find_owned_resume!` before
+  revisiting this properly. A **failed** job also writes `{ resume_id:, error: }` under the same
+  cache key, so `#ready` can tell "failed" from "still running" — without it a lost failure
+  broadcast left the page on "Generating…" forever (ADR-0018). `show` re-verifies ownership via `find_owned_resume!` before
   `send_data`-ing the bytes. `test/system/resume_downloads_test.rb` is the repo's first system
   test, and what caught the ADR-0010/ADR-0014 Turbo Drive gap.
 
