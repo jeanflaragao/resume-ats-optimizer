@@ -31,6 +31,19 @@ class ResumesController < ApplicationController
   rescue ActiveRecord::RecordInvalid, Resume::Import::UnsupportedFormatError => e
     flash.now[:alert] = "We couldn't process that file: #{e.message}"
     render :new, status: :unprocessable_entity
+  rescue PDF::Reader::MalformedPDFError, PDF::Reader::UnsupportedFeatureError,
+         Resume::Extractors::JsonMapper::InvalidJsonError => e
+    # Log class only — PDF parser messages may include binary PDF bytes; JSON
+    # parser messages include the temp file path. Neither is PII, but neither
+    # is useful enough to justify the risk of leaking unexpected content.
+    #
+    # Note: InvalidJsonError is only raised by the "regex" strategy (JsonMapper).
+    # The default "llm" strategy reads JSON as raw text and never reaches this
+    # path. This rescue becomes live only if the "regex" strategy is exposed to
+    # end users in the future.
+    Rails.logger.warn("ResumesController: unreadable upload (#{e.class})")
+    flash.now[:alert] = "We couldn't read that file — it may be corrupted or in an unsupported format. Please try exporting again."
+    render :new, status: :unprocessable_entity
   end
 
   def show

@@ -38,6 +38,33 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     assert_includes text, "Built REST APIs"
   end
 
+  test "a failed job logs only the exception class, not the message, to avoid logging PII" do
+    resume = resumes(:one)
+    download_id = SecureRandom.uuid
+    secret_message = "SECRET CONTENT THAT MUST NOT APPEAR IN LOGS"
+    original_call = Resume::Optimization.method(:call)
+    Resume::Optimization.define_singleton_method(:call) { |**| raise RubyLLM::ServiceUnavailableError.new(secret_message) }
+
+    original_logger = Rails.logger
+    io = StringIO.new
+    Rails.logger = Logger.new(io)
+
+    assert_raises(RubyLLM::ServiceUnavailableError) do
+      Resume::OptimizedPdfJob.perform_now(
+        resume_id: resume.id,
+        job_description_text: "We need a Ruby engineer.",
+        download_id: download_id
+      )
+    end
+
+    log_output = io.string
+    assert_includes log_output, "RubyLLM::ServiceUnavailableError"
+    assert_not_includes log_output, secret_message
+  ensure
+    Rails.logger = original_logger
+    Resume::Optimization.define_singleton_method(:call, original_call)
+  end
+
   test "broadcasts a failed state and re-raises when Resume::Optimization errors" do
     resume = resumes(:one)
     download_id = SecureRandom.uuid
