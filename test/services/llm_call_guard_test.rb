@@ -209,6 +209,42 @@ class LlmCallGuardTest < ActiveSupport::TestCase
     end
   end
 
+  # Rails.cache.increment returns nil when the store cannot answer -- a cache
+  # miss it could not initialise, or, in production, any of the transient
+  # ActiveRecord errors Solid Cache's failsafe swallows (AdapterTimeout,
+  # Deadlocked, LockWaitTimeout, ...). nil.to_i is 0, so before this the cap
+  # silently stopped existing exactly when the database was in trouble.
+  #
+  # A distinct error, not DailyLimitExceededError: "we cannot verify the
+  # budget" and "the budget is spent" need different advice to the user.
+  test "fails closed when the call counter cannot be verified" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "1000"
+    Rails.cache = ActiveSupport::Cache::NullStore.new
+
+    with_recording_chat do |log|
+      assert_raises(LlmCallGuard::BudgetUnavailableError) do
+        LlmCallGuard.chat.with_schema(BulletRewriter::Schema).ask("1. Built a thing")
+      end
+
+      assert_empty log, "must not issue a request whose cost it cannot account for"
+    end
+  end
+
+  test "a counter that cannot be verified is not reported as a daily limit" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "1000"
+    Rails.cache = ActiveSupport::Cache::NullStore.new
+
+    with_recording_chat do
+      error = assert_raises(LlmCallGuard::BudgetUnavailableError) do
+        LlmCallGuard.chat.with_schema(BulletRewriter::Schema).ask("1. Built a thing")
+      end
+
+      refute_kind_of LlmCallGuard::DailyLimitExceededError, error
+    end
+  end
+
   private
 
   def counter_key

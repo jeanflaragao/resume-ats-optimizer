@@ -23,6 +23,12 @@
 class LlmCallGuard
   class DailyLimitExceededError < StandardError; end
 
+  # Deliberately NOT a subclass of DailyLimitExceededError. "Today's budget is
+  # spent" and "we cannot tell what today's budget is" call for different
+  # advice: come back tomorrow vs. try again shortly. Conflating them would
+  # send users away for a day over a transient database blip.
+  class BudgetUnavailableError < StandardError; end
+
   # Returns a stateless handle, not a live RubyLLM::Chat. Resolving a chat is
   # free; issuing a request is what costs money and what counts. Before #75
   # this method both counted and returned a live chat, so a caller that
@@ -72,9 +78,24 @@ class LlmCallGuard
   # One ask is one billable completion, not one HTTP attempt: RubyLLM wraps the
   # call in Faraday retry (ruby_llm/connection.rb:106) for rate-limit, 5xx and
   # timeout conditions, and those attempts return no completion to bill.
+  # Fails closed. A working store always answers increment with a number, so
+  # nil means the count could not be established: a miss the store could not
+  # initialise, or — in production — one of the transient ActiveRecord errors
+  # Solid Cache's failsafe swallows before returning nil (AdapterTimeout,
+  # ConnectionNotEstablished, Deadlocked, LockWaitTimeout, QueryCanceled,
+  # StatementTimeout; solid_cache/store/failsafe.rb). nil.to_i is 0, so
+  # comparing it against the cap used to disable the cap silently, precisely
+  # when the database was already in trouble.
+  #
+  # Refusing costs availability: a cache outage now blocks resume generation
+  # rather than uncapping spend. That is the same answer this method's
+  # count-before-the-request ordering gives to the same question, and a guard
+  # that answered it one way for failed requests and the other way for a failed
+  # counter would not be a guard.
   def self.record_call!
     count = Rails.cache.increment(counter_key, 1, expires_in: 1.day)
-    return if count.to_i <= max_calls_per_day
+    raise BudgetUnavailableError, "LLM call counter is unavailable; refusing to issue an uncounted call" if count.nil?
+    return if count <= max_calls_per_day
 
     raise DailyLimitExceededError, "Daily LLM call cap (#{max_calls_per_day}) exceeded"
   end

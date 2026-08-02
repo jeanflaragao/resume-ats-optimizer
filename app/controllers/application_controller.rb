@@ -33,6 +33,15 @@ class ApplicationController < ActionController::Base
     redirect_back_or_to root_path, flash: { alert: "We've hit today's processing limit. Please try again tomorrow." }
   end
 
+  # Distinct from the daily cap above: the guard refuses when it cannot read
+  # its own counter (a cache outage), rather than proceeding uncounted. That is
+  # transient and self-clearing, so the advice is "in a moment" — telling a user
+  # to come back tomorrow because Postgres hiccuped would be wrong.
+  rescue_from LlmCallGuard::BudgetUnavailableError do |e|
+    Rails.logger.error("#{controller_name}##{action_name}: #{e.class}")
+    redirect_back_or_to root_path, flash: { alert: "We can't process resumes right now. Please try again in a moment." }
+  end
+
   rescue_from BulletRewriter::MismatchedBulletCountError do |e|
     Rails.logger.warn("#{controller_name}##{action_name}: #{e.class}")
     redirect_back_or_to root_path, flash: { alert: "We had trouble rewriting your resume bullets. Please try again." }

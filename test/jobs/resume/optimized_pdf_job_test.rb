@@ -173,6 +173,29 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     Resume::Optimization.define_singleton_method(:call, original_call)
   end
 
+  test "an unverifiable call budget tells the user to retry shortly, not tomorrow" do
+    resume = resumes(:one)
+    download_id = SecureRandom.uuid
+    original_call = Resume::Optimization.method(:call)
+    Resume::Optimization.define_singleton_method(:call) do |**|
+      raise LlmCallGuard::BudgetUnavailableError, "LLM call counter is unavailable"
+    end
+
+    assert_raises(LlmCallGuard::BudgetUnavailableError) do
+      Resume::OptimizedPdfJob.perform_now(
+        resume_id: resume.id,
+        job_description_text: "We need a Ruby engineer.",
+        download_id: download_id
+      )
+    end
+
+    cached = Rails.cache.read(Resume::OptimizedPdfJob.cache_key(download_id))
+    assert_equal Resume::OptimizedPdfJob::BUDGET_UNAVAILABLE_MESSAGE, cached[:error]
+    assert_not_includes cached[:error], "tomorrow"
+  ensure
+    Resume::Optimization.define_singleton_method(:call, original_call)
+  end
+
   test "broadcasts a failed state and re-raises when Resume::Optimization errors" do
     resume = resumes(:one)
     download_id = SecureRandom.uuid

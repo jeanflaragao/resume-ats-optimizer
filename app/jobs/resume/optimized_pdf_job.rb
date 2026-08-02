@@ -15,6 +15,9 @@ class Resume::OptimizedPdfJob < ApplicationJob
   DAILY_LIMIT_MESSAGE = "We've hit today's processing limit. Your resume is saved — " \
                         "please try downloading it again tomorrow.".freeze
 
+  BUDGET_UNAVAILABLE_MESSAGE = "We can't generate PDFs right now. Your resume is saved — " \
+                               "please try downloading it again in a few minutes.".freeze
+
   # Maps Resume::Pdf's log-safe Unicode block names onto phrasing a candidate
   # would recognise. Names the script that isn't supported without echoing any
   # of the user's own text back into the page.
@@ -64,6 +67,13 @@ class Resume::OptimizedPdfJob < ApplicationJob
     # user content (ADR-0015).
     Rails.logger.warn("Resume::OptimizedPdfJob hit the daily LLM cap for resume #{resume_id}: #{e.class} (#{e.message})")
     record_failure(resume_id, download_id, DAILY_LIMIT_MESSAGE)
+    raise
+  rescue LlmCallGuard::BudgetUnavailableError => e
+    # The guard could not read its own counter, so it refused rather than
+    # spending uncounted. Transient and self-clearing, unlike the cap above —
+    # so this one really is worth retrying, just not tomorrow.
+    Rails.logger.error("Resume::OptimizedPdfJob could not verify the LLM call budget for resume #{resume_id}: #{e.class}")
+    record_failure(resume_id, download_id, BUDGET_UNAVAILABLE_MESSAGE)
     raise
   rescue StandardError => e
     # Log only the exception class — never the message. This clause catches any
