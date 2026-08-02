@@ -1,10 +1,18 @@
-# Issue #18: runs the same Resume::Optimization (#13) -> Resume::Pdf (#12)
-# pipeline #17's preview already uses, but off the request thread -- a resume
-# with several experiences means several sequential BulletRewriter LLM calls
-# (one per experience, see #9), which is too slow to do inline. Stores the
+# Issue #18: renders #17's optimized resume as a PDF off the request thread --
+# a resume with several experiences means several sequential BulletRewriter LLM
+# calls (one per experience, see #9), which is too slow to do inline. Stores the
 # rendered bytes in Rails.cache (Solid Cache -- no new schema/table for a
 # transient artifact) and pushes a Turbo Stream update to whichever browser
 # is subscribed to this download_id when done.
+#
+# It goes through Resume::CachedOptimization rather than re-running
+# Resume::Optimization itself (issue #83): within
+# Resume::CachedOptimization::CACHE_TTL of the preview this reuses the preview's
+# rewrites, so the download costs nothing extra and delivers the resume the user
+# actually approved on screen. On a miss it re-runs the pipeline rather than
+# failing the download -- and then the bullets legitimately differ from the
+# preview's. ADR-0021 has the reasoning; the miss is counted so the frequency is
+# visible rather than assumed.
 class Resume::OptimizedPdfJob < ApplicationJob
   queue_as :default
 
@@ -37,7 +45,9 @@ class Resume::OptimizedPdfJob < ApplicationJob
 
   def perform(resume_id:, job_description_text:, download_id:)
     resume = Resume.find(resume_id)
-    optimized = Resume::Optimization.call(resume: resume, job_description_text: job_description_text)
+    optimized = Resume::CachedOptimization.call(
+      resume: resume, job_description_text: job_description_text, context: :download
+    )
     pdf_bytes = Resume::Pdf.call(resume: optimized)
 
     Rails.cache.write(cache_key(download_id), { resume_id: resume_id, bytes: pdf_bytes }, expires_in: CACHE_EXPIRY)

@@ -225,8 +225,25 @@ Otherwise standard Rails 8 conventions.
 - **`app/services/resume/optimization.rb`**: `Resume::Optimization.call(resume:,
   job_description_text:, chat: LlmCallGuard.chat)` bridges `BulletRewriter` and `Resume::Pdf` —
   runs `BulletRewriter` once per experience, returns a `Resume::Optimization::Result`
-  (`Data.define` mirroring `Resume::Pdf`'s expected attribute names). Never persists or mutates
-  the source records.
+  (`Data.define` mirroring `Resume::Pdf`'s expected attribute names — `experiences` *and*
+  `educations` are value objects, so the Result carries no ActiveRecord relation and can be cached
+  across processes). Never persists or mutates the source records. `.rewrite_request_count(resume)`
+  is the fan-out width (experiences with bullets), used by the daily-cap pre-flight and by
+  `Resume::CachedOptimization`'s lock timing.
+- **`app/services/resume/cached_optimization.rb`**: `Resume::CachedOptimization.call(resume:,
+  job_description_text:, context: :preview | :download, chat: LlmCallGuard.chat)` — the entry point
+  **both** the preview and the download use, so one preview-then-download journey pays for one
+  bullet-rewrite fan-out, not two, and the downloaded PDF is rendered from the rewrites the user
+  approved on screen (issue #83, ADR-0021). Caches the `Result` in `Rails.cache` for `CACHE_TTL`
+  (15 minutes, matching `Resume::OptimizedPdfJob::CACHE_EXPIRY` — the same sitting), keyed by
+  `KEY_VERSION` + `BulletRewriter.prompt_fingerprint` + a digest of the resume's and its children's
+  `cache_key_with_version` + a **digest** of the normalized job description text. The text itself is
+  never stored. A `write(unless_exist:)` lock keeps a double-submit from running two pipelines; its
+  wait and TTL scale with the number of experiences, from a measured per-request latency recorded in
+  the constants' comment **against a specific model** — changing `config.default_model` invalidates
+  them. On a miss it re-runs rather than failing the download, and counts the miss per context
+  (`resume_optimization/<context>_<outcome>_on/<date>`), so a download that had to re-run is visible
+  rather than assumed.
 - **`app/services/llm_call_guard.rb`**: `LlmCallGuard.chat` is the shared `chat:` default for
   every LLM call site above — a stopgap against accidental real Anthropic API usage locally, not
   real rate limiting (issue #22). `ENABLE_REAL_LLM_CALLS` (default `false`) returns a labeled
@@ -247,8 +264,9 @@ Otherwise standard Rails 8 conventions.
   every page carries a "Demo mode" banner (`app/views/layouts/_stub_mode_banner.html.erb`). The one
   exemption is `SECRET_KEY_BASE_DUMMY`, set by `Dockerfile:50`'s `assets:precompile` — the image
   build boots Rails under `RAILS_ENV=production` with no deploy environment and makes no LLM calls.
-  Sizing input for the production cap: one full user flow costs `2 + 2E` provider requests, `E` =
-  experiences with bullets. A counter that can't be read (`Rails.cache.increment`
+  Sizing input for the production cap: one full user flow costs `2 + E` provider requests, `E` =
+  experiences with bullets — `2 + 2E` before ADR-0021, and still `2 + 2E` whenever a download misses
+  the optimization cache. A counter that can't be read (`Rails.cache.increment`
   returning `nil`: `:null_store`, or a transient error Solid Cache's failsafe swallows) **fails
   closed** with the distinct `LlmCallGuard::BudgetUnavailableError` — "we can't see the budget"
   gets "try again in a moment", not the cap's "try again tomorrow".
@@ -263,7 +281,7 @@ Otherwise standard Rails 8 conventions.
   renders a distinct message rather than a misleading 0%. Uses `find_owned_resume!` (shared by
   every controller below).
 - **`app/controllers/previews_controller.rb`**: `create` wires the "Preview optimized resume"
-  button to `Resume::Optimization`, same length-bound pattern. `job_description_text` is
+  button to `Resume::CachedOptimization` (`context: :preview`), same length-bound pattern. `job_description_text` is
   resubmitted via a hidden field kept in sync with the visible textarea
   (`sync_controller.js`), each form independently CSRF-scoped (ADR-0013). Renders a Tailwind
   HTML template (not an embedded PDF) mirroring `Resume::Pdf`'s layout. Synchronous, no Solid
@@ -271,8 +289,11 @@ Otherwise standard Rails 8 conventions.
 - **`app/jobs/resume/optimized_pdf_job.rb`** + **`app/controllers/downloads_controller.rb`**:
   `create` validates `job_description_text` (same length bound), enqueues
   `Resume::OptimizedPdfJob.perform_later`, and renders a status page subscribed via
-  `turbo_stream_from`. The job re-runs `Resume::Optimization` → `Resume::Pdf` (deliberately not
-  reusing a prior preview — no caching of that step, cost concerns are #22's scope), writes the
+  `turbo_stream_from`. The job runs `Resume::CachedOptimization` (`context: :download`) →
+  `Resume::Pdf` — within `CACHE_TTL` of the preview this **reuses** the preview's rewrites rather
+  than re-running them, which is both the cost fix and the reason the downloaded PDF matches what
+  the user approved on screen (issue #83, ADR-0021; on a miss it re-runs, and the bullets then
+  legitimately differ). It writes the
   PDF bytes to `Rails.cache` (Solid Cache in production, ADR-0012), and broadcasts to
   `downloads/_ready` or `_failed`. A broadcast can arrive before the page's ActionCable
   subscription connects, so `DownloadsController#ready` gives a one-shot fallback check on

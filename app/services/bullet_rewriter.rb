@@ -11,6 +11,26 @@ class BulletRewriter
 
   FIDELITY_MIN_TOKEN_COVERAGE = FidelityCheck::DEFAULT_MIN_TOKEN_COVERAGE
 
+  # Identifies "the rewrite this code produces" for Resume::CachedOptimization's
+  # key (issue #83), so a cached rewrite is never served after the thing that
+  # produced it has changed. Two signals, because each covers the other's blind
+  # spot:
+  #
+  # - PROMPT_VERSION is hand-bumped, and catches what a digest of the text
+  #   cannot see -- FIDELITY_MIN_TOKEN_COVERAGE, the order #prompt assembles
+  #   its sections in, anything about how the reply is post-processed.
+  # - The INSTRUCTIONS digest catches the case the hand-bump exists to cover
+  #   and someone forgets.
+  #
+  # Bump PROMPT_VERSION whenever a change alters what a rewrite means but
+  # leaves INSTRUCTIONS byte-identical. Getting it wrong is bounded: stale
+  # rewrites are served for at most Resume::CachedOptimization::CACHE_TTL.
+  PROMPT_VERSION = 1
+
+  def self.prompt_fingerprint
+    "#{PROMPT_VERSION}-#{Digest::SHA256.hexdigest(INSTRUCTIONS).first(12)}"
+  end
+
   class Schema < RubyLLM::Schema
     array :bullets, of: :string,
       description: "Rewritten bullets, exactly one per input bullet and in the same order."
