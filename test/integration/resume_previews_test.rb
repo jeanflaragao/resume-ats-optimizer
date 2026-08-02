@@ -55,6 +55,27 @@ class ResumePreviewsTest < ActionDispatch::IntegrationTest
     Resume::Optimization.define_singleton_method(:call, original_call)
   end
 
+  # A cache outage makes the guard refuse rather than proceed uncounted, so
+  # this is a transient "try again shortly", not the daily cap's "come back
+  # tomorrow". Sending a user away for a day over a database blip would be the
+  # wrong advice.
+  test "an unverifiable call budget on preview redirects with transient, not daily, advice" do
+    resume = upload_resume
+    original_call = Resume::Optimization.method(:call)
+    Resume::Optimization.define_singleton_method(:call) do |**|
+      raise LlmCallGuard::BudgetUnavailableError, "LLM call counter is unavailable"
+    end
+
+    post resume_preview_path(resume), params: { job_description_text: "We need a Ruby engineer." }
+
+    assert_redirected_to root_path
+    follow_redirect!
+    assert_includes response.body, "in a moment"
+    assert_not_includes response.body, "tomorrow"
+  ensure
+    Resume::Optimization.define_singleton_method(:call, original_call)
+  end
+
   test "an LLM service error on preview redirects and does not log PII" do
     resume = upload_resume
     secret_jd = "SECRET PREVIEW JD CONTENT MUST NOT BE LOGGED"

@@ -34,7 +34,15 @@ class Resume::Optimization
 
   attr_reader :resume, :job_description_text, :chat
 
+  # This is the pipeline's only LLM fan-out: one BulletRewriter request per
+  # experience that actually has bullets. That count is known here, before the
+  # first billable request, so the daily cap is checked against the whole flow
+  # rather than discovered partway through it (issue #75). Without this, a
+  # resume that cannot fit in today's remaining budget still pays for every
+  # rewrite up to the one that trips the cap, and delivers nothing.
   def optimized_experiences
+    LlmCallGuard.ensure_headroom!(rewrite_request_count)
+
     resume.experiences.map do |experience|
       Experience.new(
         company: experience.company,
@@ -49,5 +57,11 @@ class Resume::Optimization
         )
       )
     end
+  end
+
+  # BulletRewriter returns early for an experience with no bullets, before it
+  # issues anything, so those cost nothing and must not count against the cap.
+  def rewrite_request_count
+    resume.experiences.count { |experience| experience.bullets.present? }
   end
 end
