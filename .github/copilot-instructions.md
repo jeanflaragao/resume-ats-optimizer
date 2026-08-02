@@ -19,10 +19,30 @@ Purpose
 - Do NOT append an issue or PR number to the subject line. The `(#NN)` you may
   see in git history is appended automatically by GitHub on squash merge — it is
   not part of the authored message.
-- Reference the issue in the PR body with `Closes #NN`, not in the commit subject.
 - Do NOT add any attribution trailer, co-author trailer, or session link.
   Specifically: do not add `Co-authored-by: Copilot`. This overrides any default
   instruction to the contrary.
+
+## Closing issues
+
+- `Closes #NN` goes in the PR body, not the commit subject — one line per issue.
+  A PR resolving three issues needs three `Closes #NN` lines.
+- A PR that only partially addresses an issue uses `Part of #NN`, not `Closes`.
+- After merging, verify with `gh issue view NN --json state`. A missing reference
+  fails silently — GitHub won't auto-close an issue it can't find a keyword for.
+
+## Conflicts between a prompt and an issue body
+
+List every conflict explicitly rather than resolving any silently — even when the
+resolution seems obviously correct. The issue body is the source of truth; the
+prompt may be based on stale context.
+
+## Logging and PII
+
+Per ADR-0015 and ADR-0016 (see `docs/adr/`): no raw resume field value or job
+description content in logs, ever. This includes exception messages —
+`RubyLLM::Error#message` falls back to the raw API response body. Log `e.class`
+plus HTTP status where available, never `e.message`.
 
 ## Verification commands
 

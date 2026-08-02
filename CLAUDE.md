@@ -2,6 +2,50 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git workflow — non-negotiable
+
+- NEVER push to `master`. No exceptions, no "just this once". Always: branch off
+  freshly-pulled master → commit → push the branch → open a PR with `gh pr create`.
+- Never merge. Stop after opening the PR and wait for explicit human approval. Merges are
+  done with `gh pr merge --squash --delete-branch`, by the human.
+- Branch naming: `<type>/<short-description>`, type matching the commit type (feat, fix,
+  docs, test, chore, refactor, perf, security).
+
+## Commit messages
+
+- Conventional Commits: `type(scope): short description`.
+- Do NOT append an issue or PR number to the subject line. The `(#NN)` visible in git
+  history is added automatically by GitHub on squash merge — it is not part of the
+  authored message.
+- Do NOT add any attribution trailer, co-author trailer, or session link.
+
+## Closing issues
+
+- `Closes #NN` goes in the PR body, not the commit subject — one line per issue. A PR
+  resolving three issues needs three `Closes #NN` lines.
+- A PR that only partially addresses an issue uses `Part of #NN`, not `Closes`.
+- After merging, verify with `gh issue view NN --json state`. A missing reference fails
+  silently — GitHub won't auto-close an issue it can't find a keyword for.
+
+## Conflicts between a prompt and an issue body
+
+List every conflict explicitly rather than resolving any silently — even when the
+resolution seems obviously correct. The issue body is the source of truth; the prompt may
+be based on stale context.
+
+## Verification — all inside the container
+
+- `docker compose run --rm web bin/rails test`
+- `docker compose run --rm web bin/rubocop`
+- `docker compose run --rm web bin/brakeman`
+- `docker compose run --rm web bin/importmap audit`
+
+## Logging and PII
+
+Per ADR-0015 and ADR-0016: no raw resume field value or job description content in logs,
+ever. This includes exception messages — `RubyLLM::Error#message` falls back to the raw
+API response body. Log `e.class` plus HTTP status where available, never `e.message`.
+
 ## Project status
 
 The Rails app is scaffolded (issue #3) per the Stack decided in issue #1, the resume data model
@@ -255,8 +299,10 @@ Otherwise standard Rails 8 conventions.
     reintroduces `PdfRegex`'s layout-reliability ceiling as a verification floor here too — some
     false-positive drops on PDFs are an accepted trade-off, not a bug. `phone` is verified by its
     digit-only representation rather than a literal match (legitimate reformatting is expected,
-    same idea as the date year-check); `email`/`phone` drops are logged without the raw value
-    (field name/reason only) since, unlike every other field, they're PII.
+    same idea as the date year-check). Every dropped field, not just `email`/`phone`, is logged
+    without its raw value (field name/reason only) — ADR-0015 extended what was originally an
+    email/phone-only exception to every field, since name, bullets, summary, company/school
+    names, and skills are all personal data too; see Logging and PII above.
   - `Extractors::PdfRegex` — deterministic PDF path: `pdf-reader` for text, then a small state
     machine over the lines (section headers → date-range lines → bullet-prefixed lines) to find
     entry boundaries. Best-effort by nature; see the Stack section above for the trade-off. Does
