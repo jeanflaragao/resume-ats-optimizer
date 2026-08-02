@@ -14,7 +14,15 @@ class DownloadsController < ApplicationController
     return head :no_content if cached.nil?
 
     find_owned_resume!(cached[:resume_id])
-    render partial: "downloads/ready", locals: { download_id: params[:id] }
+
+    # A failed job records its reason under the same key, so this fallback can
+    # tell "failed" from "still running" instead of reporting no_content
+    # forever when the failure broadcast was lost to #72's race.
+    if cached[:error]
+      render partial: "downloads/failed", locals: { message: cached[:error] }
+    else
+      render partial: "downloads/ready", locals: { download_id: params[:id] }
+    end
   end
   def create
     @resume = find_owned_resume!(params[:resume_id])
@@ -53,8 +61,8 @@ class DownloadsController < ApplicationController
   def show
     cached = Rails.cache.read(Resume::OptimizedPdfJob.cache_key(params[:id]))
 
-    if cached.nil?
-      flash[:alert] = "That download link has expired. Please generate a new one."
+    if cached.nil? || cached[:bytes].blank?
+      flash[:alert] = cached&.dig(:error) || "That download link has expired. Please generate a new one."
       return redirect_to root_path
     end
 

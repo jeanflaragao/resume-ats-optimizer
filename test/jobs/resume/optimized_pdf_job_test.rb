@@ -65,6 +65,83 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     Resume::Optimization.define_singleton_method(:call, original_call)
   end
 
+  # The log line is the regression risk here, not the raise: emitting "U+5F35"
+  # looks harmless next to emitting the name itself, but for a CJK name the
+  # codepoints ARE the name (ADR-0015). Assert on both what it must say and
+  # what it must never say.
+  test "an unrenderable script logs the Unicode block and count, never the characters or codepoints" do
+    resume = resumes(:one)
+    resume.update!(name: "張偉")
+    download_id = SecureRandom.uuid
+
+    original_logger = Rails.logger
+    io = StringIO.new
+    Rails.logger = Logger.new(io)
+
+    assert_raises(Resume::Pdf::UnrenderableCharacterError) do
+      Resume::OptimizedPdfJob.perform_now(
+        resume_id: resume.id,
+        job_description_text: "We need a Ruby engineer.",
+        download_id: download_id
+      )
+    end
+
+    log_output = io.string
+    assert_includes log_output, "CJK Unified Ideographs"
+    assert_includes log_output, "2 characters"
+    assert_not_includes log_output, "張"
+    assert_not_includes log_output, "偉"
+    assert_not_includes log_output, "U+"
+    assert_not_includes log_output, "5F35"
+  ensure
+    Rails.logger = original_logger
+  end
+
+  test "an unrenderable script tells the user which script is unsupported and not to retry" do
+    resume = resumes(:one)
+    resume.update!(name: "張偉")
+    download_id = SecureRandom.uuid
+
+    broadcasts = capture_turbo_stream_broadcasts "download_#{download_id}" do
+      assert_raises(Resume::Pdf::UnrenderableCharacterError) do
+        Resume::OptimizedPdfJob.perform_now(
+          resume_id: resume.id,
+          job_description_text: "We need a Ruby engineer.",
+          download_id: download_id
+        )
+      end
+    end
+
+    message = broadcasts.first.to_s
+    assert_includes message, "Chinese, Japanese, or Korean characters"
+    assert_includes message, "Retrying will not help"
+    assert_not_includes message, "張"
+  end
+
+  # Without this the failure is only ever broadcast, and a broadcast lost to
+  # #72's race leaves the page on "Generating..." forever.
+  test "a failure is recorded in the cache so a late subscriber can still see it" do
+    resume = resumes(:one)
+    download_id = SecureRandom.uuid
+    original_call = Resume::Optimization.method(:call)
+    Resume::Optimization.define_singleton_method(:call) { |**| raise "boom" }
+
+    assert_raises(RuntimeError) do
+      Resume::OptimizedPdfJob.perform_now(
+        resume_id: resume.id,
+        job_description_text: "We need a Ruby engineer.",
+        download_id: download_id
+      )
+    end
+
+    cached = Rails.cache.read(Resume::OptimizedPdfJob.cache_key(download_id))
+    assert_equal resume.id, cached[:resume_id]
+    assert_equal Resume::OptimizedPdfJob::GENERIC_FAILURE_MESSAGE, cached[:error]
+    assert_nil cached[:bytes]
+  ensure
+    Resume::Optimization.define_singleton_method(:call, original_call)
+  end
+
   test "broadcasts a failed state and re-raises when Resume::Optimization errors" do
     resume = resumes(:one)
     download_id = SecureRandom.uuid
@@ -81,7 +158,10 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
       end
     end
 
-    assert_nil Rails.cache.read(Resume::OptimizedPdfJob.cache_key(download_id))
+    # The cache holds a failure marker rather than nothing, so the #ready
+    # fallback can distinguish a failed job from one still running -- but it
+    # must never hold bytes a failed render didn't produce.
+    assert_nil Rails.cache.read(Resume::OptimizedPdfJob.cache_key(download_id))[:bytes]
     assert_includes broadcasts.first.to_s, "went wrong"
   ensure
     Resume::Optimization.define_singleton_method(:call, original_call)

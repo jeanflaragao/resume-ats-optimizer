@@ -2,7 +2,60 @@
 # (Header, Summary, Experience, Education, Skills) that plain-text ATS parsers
 # can read reliably. Deliberately simple per the Stack section's rationale for
 # choosing Prawn over an HTML/Chrome renderer.
+#
+# Fonts are embedded rather than using Prawn's built-in AFM faces, which are
+# Windows-1252 only and crashed on any name outside it (issue #74, ADR-0018).
+# Liberation Sans is the body face -- metric-compatible with Helvetica, so
+# swapping it moved no layout -- with DejaVu Sans as a fallback purely for the
+# handful of glyphs Liberation lacks (U+2011, U+2713).
 class Resume::Pdf
+  # Raised instead of rendering a character no embedded font can display.
+  # Prawn does not raise for a missing glyph: it draws .notdef (nothing
+  # visible) while the ToUnicode CMap still extracts the original text, so a
+  # CJK resume would download "successfully" with a blank name line and parse
+  # cleanly in an ATS. Failing loudly is the only honest option -- see ADR-0018.
+  class UnrenderableCharacterError < StandardError
+    attr_reader :blocks
+
+    def initialize(counts_by_block)
+      @blocks = counts_by_block.keys
+      super(counts_by_block.map { |block, count| "#{count} characters in #{block}" }.join("; "))
+    end
+  end
+
+  # Only the blocks a resume plausibly contains, named for a human reading a
+  # log line. Anything outside this list falls back to a generic label rather
+  # than emitting a codepoint -- see #unicode_block.
+  UNICODE_BLOCKS = {
+    (0x3040..0x309F) => "Hiragana",
+    (0x30A0..0x30FF) => "Katakana",
+    (0x3400..0x4DBF) => "CJK Unified Ideographs Extension A",
+    (0x4E00..0x9FFF) => "CJK Unified Ideographs",
+    (0xAC00..0xD7AF) => "Hangul Syllables",
+    (0x0590..0x05FF) => "Hebrew",
+    (0x0600..0x06FF) => "Arabic",
+    (0x0900..0x097F) => "Devanagari",
+    (0x2190..0x21FF) => "Arrows",
+    (0x2600..0x27BF) => "Miscellaneous Symbols",
+    (0x1F300..0x1FAFF) => "Emoji and Pictographs"
+  }.freeze
+
+  FONT_DIR = Rails.root.join("vendor/fonts")
+  BODY_FONT = "LiberationSans".freeze
+  FALLBACK_FONT = "DejaVuSans".freeze
+
+  FONT_FAMILIES = {
+    BODY_FONT => {
+      normal: FONT_DIR.join("LiberationSans-Regular.ttf").to_s,
+      bold: FONT_DIR.join("LiberationSans-Bold.ttf").to_s
+    },
+    # Registered normal-only on purpose: Prawn's fallback always resolves to
+    # the normal weight, so a bold face here would never be selected.
+    FALLBACK_FONT => {
+      normal: FONT_DIR.join("DejaVuSans.ttf").to_s
+    }
+  }.freeze
+
   ACCENT_COLOR = "1F3864"
   BODY_COLOR = "000000"
   BODY_FONT_SIZE = 10
@@ -20,11 +73,15 @@ class Resume::Pdf
   def initialize(resume:)
     @resume = resume
     @document = Prawn::Document.new
+    @document.font_families.update(FONT_FAMILIES)
+    @document.font(BODY_FONT)
+    @document.fallback_fonts([ FALLBACK_FONT ])
     @document.font_size = BODY_FONT_SIZE
     @document.fill_color = BODY_COLOR
   end
 
   def call
+    guard_renderable!
     render_header
     render_summary
     render_experience
@@ -36,6 +93,55 @@ class Resume::Pdf
   private
 
   attr_reader :resume, :document
+
+  # Walks every string that will be drawn and refuses the whole document if any
+  # character has no glyph in either embedded font. Deliberately all-or-nothing:
+  # dropping or substituting the offending characters would be transliteration
+  # by another name, and silently printing "Balka" for "Bałka" on someone's
+  # resume is exactly what ADR-0018 rejects.
+  def guard_renderable!
+    counts = Hash.new(0)
+
+    renderable_text.each do |string|
+      string.to_s.each_char do |char|
+        next if char.match?(/\s/) || renderable?(char)
+
+        counts[unicode_block(char)] += 1
+      end
+    end
+
+    raise UnrenderableCharacterError, counts if counts.any?
+  end
+
+  # Every dynamic string the render_* methods below pass to document.text. The
+  # static section headers, SEPARATOR and BULLET_PREFIX are ASCII by
+  # construction and formatted dates are ASCII in the default locale, so only
+  # user-supplied values need checking.
+  def renderable_text
+    [
+      resume.name, resume.email, resume.phone, resume.summary,
+      *Array(resume.skills),
+      *resume.experiences.flat_map { |e| [ e.company, e.title, e.location, *Array(e.bullets) ] },
+      *resume.educations.flat_map { |e| [ e.school, e.degree, e.field_of_study ] }
+    ].compact
+  end
+
+  def renderable?(char)
+    font_cmaps.any? { |cmap| (cmap[char.ord] || 0) != 0 }
+  end
+
+  def font_cmaps
+    @font_cmaps ||= FONT_FAMILIES.values.flat_map(&:values).map do |path|
+      TTFunk::File.open(path).cmap.unicode.first
+    end
+  end
+
+  # ADR-0015: for a CJK name the codepoints ARE the name, so a log line listing
+  # "U+5F35 U+5049" leaks precisely what logging the raw string would. The block
+  # name plus a count is the most specific thing that is safe to emit.
+  def unicode_block(char)
+    UNICODE_BLOCKS.find { |range, _| range.cover?(char.ord) }&.last || "an unsupported script"
+  end
 
   def render_header
     name = resume.name.presence

@@ -25,3 +25,4 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0015 | Treat every extracted resume field as personal data; redact all values from log output | Accepted | [0015-uniform-log-redaction-for-resume-fields.md](0015-uniform-log-redaction-for-resume-fields.md) |
 | 0016 | Named rescue list for domain errors — rescue_from for LLM errors, controller-level rescue for file-parsing errors | Accepted | [0016-named-rescue-list-for-domain-errors.md](0016-named-rescue-list-for-domain-errors.md) |
 | 0017 | Bound upload size and job description length | Accepted | [0017-bound-upload-size-and-job-description-length.md](0017-bound-upload-size-and-job-description-length.md) |
+| 0018 | Embed Liberation Sans with a DejaVu Sans fallback, and refuse to render scripts no font covers | Accepted | [0018-embed-liberation-sans-with-dejavu-fallback.md](0018-embed-liberation-sans-with-dejavu-fallback.md) |
