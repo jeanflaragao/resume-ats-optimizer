@@ -1,0 +1,10 @@
+<%# Issue #77: stub mode outside local development is a deliberate deployment
+    choice (ALLOW_STUB_LLM), but the user did not make it. Without this, the
+    only signal that a resume was never tailored is StubChat's label buried
+    inside the summary and every bullet of the downloaded PDF. %>
+<% if LlmCallGuard.stub_mode_banner? %>
+  <p class="rounded px-4 py-2 bg-amber-100 text-amber-900">
+    Demo mode: this deployment is not calling the AI service. Generated resumes contain
+    placeholder text, not content tailored to your job description.
+  </p>
+<% end %>
