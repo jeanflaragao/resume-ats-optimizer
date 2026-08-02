@@ -1,32 +1,10 @@
 require "test_helper"
 
 class LlmCallGuardTest < ActiveSupport::TestCase
-  # Mimics RubyLLM::Chat's message accumulation so a shared chat is *visible*
-  # here rather than having to be inferred: #ask appends the user message
-  # (ruby_llm/chat.rb:40 -> :167) and the assistant reply is appended too
-  # (:229), and every ask re-sends the whole array. Recording messages.size at
-  # each ask is therefore exactly the payload-growth signal we want to guard.
-  class RecordingChat
-    attr_reader :messages
-
-    def initialize(sizes_log)
-      @sizes_log = sizes_log
-      @messages = []
-    end
-
-    def with_schema(schema)
-      @schema = schema
-      self
-    end
-
-    def ask(prompt = nil, **)
-      @messages << { role: :user, content: prompt }
-      @sizes_log << @messages.size
-      reply = { "bullets" => prompt.to_s.scan(/^\d+\.\s+(.+)$/).flatten }
-      @messages << { role: :assistant, content: reply }
-      Struct.new(:content).new(reply)
-    end
-  end
+  # RecordingChat and with_recording_chat used to live here as private helpers.
+  # They moved to test/support/recording_llm.rb unchanged in behaviour once
+  # test/integration/preview_download_reuse_test.rb needed to count the same
+  # thing (issue #83); ActiveSupport::TestCase includes the module.
 
   setup do
     @original_enabled = ENV["ENABLE_REAL_LLM_CALLS"]
@@ -419,17 +397,5 @@ class LlmCallGuardTest < ActiveSupport::TestCase
       )
     end
     resume
-  end
-
-  # Replaces RubyLLM.chat — the seam LlmCallGuard itself uses — so no real
-  # connection is ever built. Yields the log of messages-array sizes seen at
-  # each ask, one entry per provider request.
-  def with_recording_chat
-    log = []
-    original = RubyLLM.method(:chat)
-    RubyLLM.define_singleton_method(:chat) { |*, **| RecordingChat.new(log) }
-    yield log
-  ensure
-    RubyLLM.define_singleton_method(:chat, original)
   end
 end

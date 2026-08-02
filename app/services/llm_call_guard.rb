@@ -49,8 +49,9 @@ class LlmCallGuard
   #    text in place of the summary, job title, and every bullet.
   # 2. MAX_LLM_CALLS_PER_DAY unset -> the whole service shares the local
   #    default. Since ADR-0019 that means 10 real provider requests, and one
-  #    upload + analyze + preview + download is 2 + 2x(experiences with
-  #    bullets) — a single ordinary resume exhausts the day for everyone.
+  #    upload + analyze + preview + download is 2 + (experiences with bullets)
+  #    since ADR-0021, 2 + 2x that if the download misses the cache — a single
+  #    ordinary resume exhausts the day for everyone.
   # 3. ANTHROPIC_API_KEY unset -> config/initializers/ruby_llm.rb reads it with
   #    a bare ENV[], so nothing fails until the first user's upload, which
   #    surfaces as "the AI service is temporarily unavailable".
@@ -136,8 +137,8 @@ class LlmCallGuard
     unless ENV.key?("MAX_LLM_CALLS_PER_DAY")
       raise ConfigurationError,
         "MAX_LLM_CALLS_PER_DAY is not set. It has no default in production — the value belongs " \
-        "in the deploy config (issue #48), sized against 2 + 2x(experiences with bullets) " \
-        "provider requests per full user flow."
+        "in the deploy config (issue #48), sized against 2 + (experiences with bullets) provider " \
+        "requests per full user flow, or twice that when a download misses the optimization cache."
     end
 
     raw = ENV["MAX_LLM_CALLS_PER_DAY"]

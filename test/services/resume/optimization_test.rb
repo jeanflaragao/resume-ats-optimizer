@@ -62,7 +62,17 @@ class Resume::OptimizationTest < ActiveSupport::TestCase
     assert_equal resume.phone, result.phone
     assert_equal resume.summary, result.summary
     assert_equal resume.skills, result.skills
-    assert_equal resume.educations.to_a, result.educations.to_a
+    # Copied into value objects rather than passed through as the relation
+    # (issue #83): the Result is written to Rails.cache, and a relation would
+    # serialise a database-connected object between processes.
+    assert_equal resume.educations.size, result.educations.size
+    resume.educations.zip(result.educations).each do |education, copied|
+      assert_instance_of Resume::Optimization::Education, copied
+      assert_equal(
+        education.slice(:school, :degree, :field_of_study, :starts_on, :ends_on).symbolize_keys,
+        copied.to_h
+      )
+    end
 
     experience = result.experiences.first
     assert_instance_of Resume::Optimization::Experience, experience

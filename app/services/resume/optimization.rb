@@ -7,9 +7,27 @@
 class Resume::Optimization
   Result = Data.define(:name, :email, :phone, :summary, :skills, :experiences, :educations)
   Experience = Data.define(:company, :title, :location, :starts_on, :ends_on, :bullets)
+  # Educations are copied into a value object for the same reason experiences
+  # are, rather than passed through as the ActiveRecord relation they used to
+  # be (issue #83): Resume::CachedOptimization writes this Result into
+  # Rails.cache, and a relation would serialise a database-connected object out
+  # of one process and back into a Solid Queue worker in another. Nothing here
+  # is loaded lazily, so the Result is now self-contained -- which is what the
+  # class comment above already claims of it.
+  Education = Data.define(:school, :degree, :field_of_study, :starts_on, :ends_on)
 
   def self.call(resume:, job_description_text:, chat: LlmCallGuard.chat)
     new(resume: resume, job_description_text: job_description_text, chat: chat).call
+  end
+
+  # The pipeline's LLM fan-out width: one BulletRewriter request per experience
+  # that actually has bullets, since BulletRewriter returns early on an empty
+  # list (bullet_rewriter.rb:44) before the request at :46. Public because two
+  # callers outside this class need the same number for a different reason --
+  # the daily-cap pre-flight below (issue #75) and Resume::CachedOptimization's
+  # lock timing, which scales with how long the fan-out will take (issue #83).
+  def self.rewrite_request_count(resume)
+    resume.experiences.count { |experience| experience.bullets.present? }
   end
 
   def initialize(resume:, job_description_text:, chat:)
@@ -26,7 +44,7 @@ class Resume::Optimization
       summary: resume.summary,
       skills: resume.skills,
       experiences: optimized_experiences,
-      educations: resume.educations
+      educations: copied_educations
     )
   end
 
@@ -62,6 +80,18 @@ class Resume::Optimization
   # BulletRewriter returns early for an experience with no bullets, before it
   # issues anything, so those cost nothing and must not count against the cap.
   def rewrite_request_count
-    resume.experiences.count { |experience| experience.bullets.present? }
+    self.class.rewrite_request_count(resume)
+  end
+
+  def copied_educations
+    resume.educations.map do |education|
+      Education.new(
+        school: education.school,
+        degree: education.degree,
+        field_of_study: education.field_of_study,
+        starts_on: education.starts_on,
+        ends_on: education.ends_on
+      )
+    end
   end
 end
