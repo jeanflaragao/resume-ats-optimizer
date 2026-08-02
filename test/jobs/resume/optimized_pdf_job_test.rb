@@ -142,6 +142,37 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     Resume::Optimization.define_singleton_method(:call, original_call)
   end
 
+  # #56's rescue_from handlers live in ApplicationController and never reach a
+  # job, so before #75 this fell into the blanket StandardError clause and told
+  # the user "Please try again" -- advice that is wrong twice over: retrying now
+  # fails identically, and retrying tomorrow would have worked.
+  test "hitting the daily LLM cap tells the user to come back tomorrow, not to retry now" do
+    resume = resumes(:one)
+    download_id = SecureRandom.uuid
+    original_call = Resume::Optimization.method(:call)
+    Resume::Optimization.define_singleton_method(:call) do |**|
+      raise LlmCallGuard::DailyLimitExceededError, "Daily LLM call cap (10) exceeded"
+    end
+
+    broadcasts = capture_turbo_stream_broadcasts "download_#{download_id}" do
+      assert_raises(LlmCallGuard::DailyLimitExceededError) do
+        Resume::OptimizedPdfJob.perform_now(
+          resume_id: resume.id,
+          job_description_text: "We need a Ruby engineer.",
+          download_id: download_id
+        )
+      end
+    end
+
+    cached = Rails.cache.read(Resume::OptimizedPdfJob.cache_key(download_id))
+    assert_equal Resume::OptimizedPdfJob::DAILY_LIMIT_MESSAGE, cached[:error]
+    assert_not_equal Resume::OptimizedPdfJob::GENERIC_FAILURE_MESSAGE, cached[:error]
+    assert_includes cached[:error], "tomorrow"
+    assert_includes broadcasts.first.to_s, "tomorrow"
+  ensure
+    Resume::Optimization.define_singleton_method(:call, original_call)
+  end
+
   test "broadcasts a failed state and re-raises when Resume::Optimization errors" do
     resume = resumes(:one)
     download_id = SecureRandom.uuid

@@ -12,6 +12,9 @@ class Resume::OptimizedPdfJob < ApplicationJob
 
   GENERIC_FAILURE_MESSAGE = "Something went wrong generating your PDF. Please try again.".freeze
 
+  DAILY_LIMIT_MESSAGE = "We've hit today's processing limit. Your resume is saved — " \
+                        "please try downloading it again tomorrow.".freeze
+
   # Maps Resume::Pdf's log-safe Unicode block names onto phrasing a candidate
   # would recognise. Names the script that isn't supported without echoing any
   # of the user's own text back into the page.
@@ -48,6 +51,19 @@ class Resume::OptimizedPdfJob < ApplicationJob
     # count, never the offending characters or their codepoints (ADR-0015).
     Rails.logger.error("Resume::OptimizedPdfJob failed for resume #{resume_id}: #{e.class} (#{e.message})")
     record_failure(resume_id, download_id, unsupported_script_message(e))
+    raise
+  rescue LlmCallGuard::DailyLimitExceededError => e
+    # Named rather than left to the blanket clause below, because the generic
+    # "Please try again" is wrong advice here in both directions: retrying now
+    # fails identically, and retrying tomorrow would succeed. #56's rescue_from
+    # handlers give the preview path an equivalent message, but they live in
+    # ApplicationController and never reach a job.
+    #
+    # Safe to log the message, on the same grounds as the clause above: it is
+    # built by LlmCallGuard from an ENV integer and a counter, and carries no
+    # user content (ADR-0015).
+    Rails.logger.warn("Resume::OptimizedPdfJob hit the daily LLM cap for resume #{resume_id}: #{e.class} (#{e.message})")
+    record_failure(resume_id, download_id, DAILY_LIMIT_MESSAGE)
     raise
   rescue StandardError => e
     # Log only the exception class — never the message. This clause catches any
