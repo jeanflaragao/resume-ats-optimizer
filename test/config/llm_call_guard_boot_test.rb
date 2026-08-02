@@ -1,0 +1,65 @@
+require "test_helper"
+require "open3"
+
+# Boots a real production environment in a subprocess and asserts it refuses to
+# start. A structural assertion about boot rather than behaviour, in the same
+# spirit as test/config/cache_test.rb — and the only kind that can see this:
+# the production rules in LlmCallGuard.validate_configuration! are worth nothing
+# if config/initializers/llm_call_guard.rb stops calling them, and no in-process
+# unit test of the method can tell the difference (issue #84).
+#
+# It also verifies issue #77's acceptance criterion 1 literally — "a production
+# deploy cannot start in stub mode without that being explicit" — rather than by
+# proxy.
+class LlmCallGuardBootTest < ActiveSupport::TestCase
+  # A production boot needs a secret_key_base; SECRET_KEY_BASE supplies one
+  # without config/master.key. Deliberately NOT SECRET_KEY_BASE_DUMMY, which is
+  # the guard's own build-time exemption and would skip the very check under
+  # test. nil values delete the variable in the child, so the result does not
+  # depend on what docker-compose.yml happens to set for the test container.
+  BASE_ENV = {
+    "RAILS_ENV" => "production",
+    "SECRET_KEY_BASE" => "0" * 64,
+    "SECRET_KEY_BASE_DUMMY" => nil,
+    "ENABLE_REAL_LLM_CALLS" => nil,
+    "MAX_LLM_CALLS_PER_DAY" => nil,
+    "ALLOW_STUB_LLM" => nil,
+    "ANTHROPIC_API_KEY" => nil
+  }.freeze
+
+  def boot_production(**overrides)
+    Open3.capture2e(
+      BASE_ENV.merge(overrides.transform_keys(&:to_s)),
+      Rails.root.join("bin/rails").to_s, "runner", "puts 'BOOTED-OK'",
+      chdir: Rails.root.to_s
+    ).first
+  end
+
+  test "a production boot with nothing configured refuses to start" do
+    output = boot_production
+
+    assert_match(/ConfigurationError/, output)
+    assert_match(/ENABLE_REAL_LLM_CALLS is not set/, output)
+    refute_match(/BOOTED-OK/, output, "the app must not finish booting on the local-testing defaults")
+  end
+
+  test "a production boot in stub mode refuses to start without the explicit opt-in" do
+    output = boot_production("ENABLE_REAL_LLM_CALLS" => "false", "MAX_LLM_CALLS_PER_DAY" => "200")
+
+    assert_match(/ALLOW_STUB_LLM/, output)
+    refute_match(/BOOTED-OK/, output, "stub mode in production must be opted into, not defaulted into")
+  end
+
+  # The counterweight: without this, both assertions above would pass against an
+  # app that could not boot production for some entirely unrelated reason.
+  test "a production boot with everything configured starts normally" do
+    output = boot_production(
+      "ENABLE_REAL_LLM_CALLS" => "true",
+      "MAX_LLM_CALLS_PER_DAY" => "200",
+      "ANTHROPIC_API_KEY" => "sk-ant-not-a-real-key"
+    )
+
+    assert_match(/BOOTED-OK/, output)
+    refute_match(/ConfigurationError/, output)
+  end
+end

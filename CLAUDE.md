@@ -238,7 +238,17 @@ Otherwise standard Rails 8 conventions.
   pre-flights a whole flow where the count is knowable — `Resume::Optimization` knows it from the
   experiences that have bullets — and the per-request check inside `ask` backstops it, since
   pre-flight deliberately does not reserve. Both raise
-  `LlmCallGuard::DailyLimitExceededError`. A counter that can't be read (`Rails.cache.increment`
+  `LlmCallGuard::DailyLimitExceededError`. **Neither variable defaults in production**:
+  `LlmCallGuard.validate_configuration!`, called from `config/initializers/llm_call_guard.rb`,
+  refuses to finish booting unless `ENABLE_REAL_LLM_CALLS` and `MAX_LLM_CALLS_PER_DAY` (a positive
+  Integer) are both set, plus `ANTHROPIC_API_KEY` when real calls are on — otherwise a deploy ships
+  stub placeholder text into users' PDFs, or a global 10-request/day ceiling, and finds out from a
+  user (ADR-0020). Stub mode outside dev needs a second explicit `ALLOW_STUB_LLM=true`, and then
+  every page carries a "Demo mode" banner (`app/views/layouts/_stub_mode_banner.html.erb`). The one
+  exemption is `SECRET_KEY_BASE_DUMMY`, set by `Dockerfile:50`'s `assets:precompile` — the image
+  build boots Rails under `RAILS_ENV=production` with no deploy environment and makes no LLM calls.
+  Sizing input for the production cap: one full user flow costs `2 + 2E` provider requests, `E` =
+  experiences with bullets. A counter that can't be read (`Rails.cache.increment`
   returning `nil`: `:null_store`, or a transient error Solid Cache's failsafe swallows) **fails
   closed** with the distinct `LlmCallGuard::BudgetUnavailableError` — "we can't see the budget"
   gets "try again in a moment", not the cap's "try again tomorrow".

@@ -31,6 +31,9 @@ class LlmCallGuardTest < ActiveSupport::TestCase
   setup do
     @original_enabled = ENV["ENABLE_REAL_LLM_CALLS"]
     @original_max_calls = ENV["MAX_LLM_CALLS_PER_DAY"]
+    @original_allow_stub = ENV["ALLOW_STUB_LLM"]
+    @original_api_key = ENV["ANTHROPIC_API_KEY"]
+    @original_dummy_secret = ENV["SECRET_KEY_BASE_DUMMY"]
     # Test env's cache_store is :null_store (see config/environments/test.rb),
     # which no-ops increment — swap in a real store so the daily-cap counting
     # under test actually counts.
@@ -47,6 +50,9 @@ class LlmCallGuardTest < ActiveSupport::TestCase
   teardown do
     ENV["ENABLE_REAL_LLM_CALLS"] = @original_enabled
     ENV["MAX_LLM_CALLS_PER_DAY"] = @original_max_calls
+    ENV["ALLOW_STUB_LLM"] = @original_allow_stub
+    ENV["ANTHROPIC_API_KEY"] = @original_api_key
+    ENV["SECRET_KEY_BASE_DUMMY"] = @original_dummy_secret
     Rails.cache = @original_cache
   end
 
@@ -245,7 +251,160 @@ class LlmCallGuardTest < ActiveSupport::TestCase
     end
   end
 
+  # --- Boot-time configuration checks (issue #77) ------------------------
+  #
+  # env is injected rather than these booting a second Rails environment. The
+  # counterpart assertion — that the initializer actually calls this — lives in
+  # test/config/llm_call_guard_boot_test.rb, because nothing here can see a
+  # deleted initializer.
+
+  test "production boots when real calls, the cap, and the API key are all set explicitly" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "200"
+    ENV["ANTHROPIC_API_KEY"] = "sk-ant-test"
+
+    assert_nothing_raised { LlmCallGuard.validate_configuration!(env: production) }
+  end
+
+  test "production refuses to boot when ENABLE_REAL_LLM_CALLS is unset" do
+    ENV.delete("ENABLE_REAL_LLM_CALLS")
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "200"
+    ENV["ANTHROPIC_API_KEY"] = "sk-ant-test"
+
+    error = assert_raises(LlmCallGuard::ConfigurationError) do
+      LlmCallGuard.validate_configuration!(env: production)
+    end
+    assert_includes error.message, "ENABLE_REAL_LLM_CALLS is not set"
+  end
+
+  test "production refuses to boot when MAX_LLM_CALLS_PER_DAY is unset" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV.delete("MAX_LLM_CALLS_PER_DAY")
+    ENV["ANTHROPIC_API_KEY"] = "sk-ant-test"
+
+    error = assert_raises(LlmCallGuard::ConfigurationError) do
+      LlmCallGuard.validate_configuration!(env: production)
+    end
+    assert_includes error.message, "MAX_LLM_CALLS_PER_DAY is not set"
+  end
+
+  # Explicitly false is not a mode — it is the state that ships StubChat's
+  # label into every user's summary, job title, and bullets.
+  test "production refuses to boot in stub mode without the separate opt-in" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "false"
+    ENV.delete("ALLOW_STUB_LLM")
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "200"
+
+    error = assert_raises(LlmCallGuard::ConfigurationError) do
+      LlmCallGuard.validate_configuration!(env: production)
+    end
+    assert_includes error.message, "ALLOW_STUB_LLM"
+  end
+
+  test "production boots in stub mode when it is explicitly allowed" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "false"
+    ENV["ALLOW_STUB_LLM"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "200"
+    ENV.delete("ANTHROPIC_API_KEY")
+
+    assert_nothing_raised { LlmCallGuard.validate_configuration!(env: production) }
+  end
+
+  # Mandatory even where it is never read, so that flipping ALLOW_STUB_LLM off
+  # is a one-variable change that cannot half-fail.
+  test "the cap is required even when stub mode is explicitly allowed" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "false"
+    ENV["ALLOW_STUB_LLM"] = "true"
+    ENV.delete("MAX_LLM_CALLS_PER_DAY")
+
+    assert_raises(LlmCallGuard::ConfigurationError) do
+      LlmCallGuard.validate_configuration!(env: production)
+    end
+  end
+
+  test "production refuses to boot on a cap that is not a positive integer" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["ANTHROPIC_API_KEY"] = "sk-ant-test"
+
+    [ "", "ten", "0", "-1", "10.5" ].each do |value|
+      ENV["MAX_LLM_CALLS_PER_DAY"] = value
+
+      error = assert_raises(LlmCallGuard::ConfigurationError, "expected #{value.inspect} to be refused") do
+        LlmCallGuard.validate_configuration!(env: production)
+      end
+      assert_includes error.message, "positive integer"
+    end
+  end
+
+  # config/initializers/ruby_llm.rb reads this with a bare ENV[], so an unset
+  # key is invisible until the first user's upload fails.
+  test "production refuses to boot with real calls enabled and no API key" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "200"
+    ENV.delete("ANTHROPIC_API_KEY")
+
+    error = assert_raises(LlmCallGuard::ConfigurationError) do
+      LlmCallGuard.validate_configuration!(env: production)
+    end
+    assert_includes error.message, "ANTHROPIC_API_KEY is not set"
+  end
+
+  test "production refuses to boot with real calls enabled and a blank API key" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "200"
+    ENV["ANTHROPIC_API_KEY"] = "   "
+
+    assert_raises(LlmCallGuard::ConfigurationError) do
+      LlmCallGuard.validate_configuration!(env: production)
+    end
+  end
+
+  # Dockerfile:50 boots Rails under RAILS_ENV=production to precompile assets,
+  # with no deploy-time environment to validate and no LLM request to make.
+  test "the image build is exempt, and only via SECRET_KEY_BASE_DUMMY" do
+    ENV.delete("ENABLE_REAL_LLM_CALLS")
+    ENV.delete("MAX_LLM_CALLS_PER_DAY")
+    ENV.delete("ANTHROPIC_API_KEY")
+    ENV["SECRET_KEY_BASE_DUMMY"] = "1"
+
+    assert_nothing_raised { LlmCallGuard.validate_configuration!(env: production) }
+
+    ENV.delete("SECRET_KEY_BASE_DUMMY")
+    assert_raises(LlmCallGuard::ConfigurationError) do
+      LlmCallGuard.validate_configuration!(env: production)
+    end
+  end
+
+  test "development keeps its defaults and never refuses to boot" do
+    ENV.delete("ENABLE_REAL_LLM_CALLS")
+    ENV.delete("MAX_LLM_CALLS_PER_DAY")
+    ENV.delete("ANTHROPIC_API_KEY")
+
+    assert_nothing_raised do
+      LlmCallGuard.validate_configuration!(env: ActiveSupport::EnvironmentInquirer.new("development"))
+    end
+    refute LlmCallGuard.enabled?, "stub mode must stay the local default"
+    assert_equal 10, LlmCallGuard.max_calls_per_day
+  end
+
+  test "the stub-mode banner appears outside local environments only" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "false"
+
+    assert LlmCallGuard.stub_mode?
+    assert LlmCallGuard.stub_mode_banner?(env: production)
+    refute LlmCallGuard.stub_mode_banner?(env: ActiveSupport::EnvironmentInquirer.new("development"))
+    refute LlmCallGuard.stub_mode_banner?(env: ActiveSupport::EnvironmentInquirer.new("test"))
+
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    refute LlmCallGuard.stub_mode?
+    refute LlmCallGuard.stub_mode_banner?(env: production), "real calls must never show a demo-mode banner"
+  end
+
   private
+
+  def production
+    ActiveSupport::EnvironmentInquirer.new("production")
+  end
 
   def counter_key
     "llm_call_guard/calls_on/#{Date.current}"

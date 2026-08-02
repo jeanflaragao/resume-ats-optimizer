@@ -27,3 +27,4 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0017 | Bound upload size and job description length | Accepted | [0017-bound-upload-size-and-job-description-length.md](0017-bound-upload-size-and-job-description-length.md) |
 | 0018 | Embed Liberation Sans with a DejaVu Sans fallback, and refuse to render scripts no font covers | Accepted | [0018-embed-liberation-sans-with-dejavu-fallback.md](0018-embed-liberation-sans-with-dejavu-fallback.md) |
 | 0019 | Count LLM calls at the provider-call boundary, and fail closed when the count is unavailable | Accepted | [0019-count-llm-calls-at-the-provider-boundary.md](0019-count-llm-calls-at-the-provider-boundary.md) |
+| 0020 | Refuse to boot production on LlmCallGuard's local-testing defaults | Accepted | [0020-fail-closed-llm-guard-configuration-in-production.md](0020-fail-closed-llm-guard-configuration-in-production.md) |
