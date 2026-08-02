@@ -230,8 +230,18 @@ Otherwise standard Rails 8 conventions.
 - **`app/services/llm_call_guard.rb`**: `LlmCallGuard.chat` is the shared `chat:` default for
   every LLM call site above — a stopgap against accidental real Anthropic API usage locally, not
   real rate limiting (issue #22). `ENABLE_REAL_LLM_CALLS` (default `false`) returns a labeled
-  `StubChat` instead of touching the network; `MAX_LLM_CALLS_PER_DAY` (default `10`) raises
-  `LlmCallGuard::DailyLimitExceededError` once real calls are enabled and the cap is hit.
+  `StubChat` instead of touching the network. When enabled it returns a **stateless `MeteredChat`
+  handle, not a live `RubyLLM::Chat`**: resolving a chat is free, and each `ask` counts one call
+  and issues it against a freshly built chat, so a handle threaded through N rewrites bills N and
+  counts N with a flat payload (ADR-0019). `with_schema` returns a new handle rather than mutating
+  self. The cap (`MAX_LLM_CALLS_PER_DAY`, default `10`) is enforced twice: `ensure_headroom!(n)`
+  pre-flights a whole flow where the count is knowable — `Resume::Optimization` knows it from the
+  experiences that have bullets — and the per-request check inside `ask` backstops it, since
+  pre-flight deliberately does not reserve. Both raise
+  `LlmCallGuard::DailyLimitExceededError`. A counter that can't be read (`Rails.cache.increment`
+  returning `nil`: `:null_store`, or a transient error Solid Cache's failsafe swallows) **fails
+  closed** with the distinct `LlmCallGuard::BudgetUnavailableError` — "we can't see the budget"
+  gets "try again in a moment", not the cap's "try again tomorrow".
 - **`app/controllers/resumes_controller.rb`**: `new`/`create`/`show`. `create` passes the upload
   straight into `Resume::Import.call` (strategy hardcoded to `"llm"`, not user-selectable),
   enforcing `MAX_UPLOAD_BYTES` first (ADR-0017). Rescues invalid/unsupported-format and
