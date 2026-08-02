@@ -10,14 +10,29 @@
 #   metered against a daily cap.
 # - MAX_LLM_CALLS_PER_DAY (default 10): once real calls for the current day
 #   reach this count, the next call raises rather than silently proceeding.
+#
+# The cap is enforced in two layers (issue #75):
+#
+# 1. A pre-flight check (.ensure_headroom!) at the point a flow knows how many
+#    requests it will make, so a flow that cannot fit is refused before any
+#    money is spent. It deliberately does not reserve — see below.
+# 2. A per-request backstop inside MeteredChat#ask. Because pre-flight does not
+#    reserve, two concurrent flows can both pass it and then both consume; this
+#    is what makes the cap hold anyway, and it covers any flow whose predicted
+#    count is wrong.
 class LlmCallGuard
   class DailyLimitExceededError < StandardError; end
 
+  # Returns a stateless handle, not a live RubyLLM::Chat. Resolving a chat is
+  # free; issuing a request is what costs money and what counts. Before #75
+  # this method both counted and returned a live chat, so a caller that
+  # resolved once and asked N times (Resume::Optimization) was billed N times
+  # and counted once, while the shared chat's message history grew with every
+  # rewrite.
   def self.chat
     return StubChat.new unless enabled?
 
-    record_call!
-    RubyLLM.chat
+    MeteredChat.new
   end
 
   def self.enabled?
@@ -28,12 +43,74 @@ class LlmCallGuard
     Integer(ENV.fetch("MAX_LLM_CALLS_PER_DAY", "10"))
   end
 
+  def self.counter_key
+    "llm_call_guard/calls_on/#{Date.current}"
+  end
+
+  # Pre-flight: refuses a flow that cannot fit inside today's remaining budget,
+  # before its first billable request. Read-only by design — reserving would
+  # need a refund path on every failure mode, and sizing a per-flow reservation
+  # is #22's job, not this stopgap's.
+  def self.ensure_headroom!(requests)
+    return unless enabled?
+    return if requests.to_i.zero?
+
+    used = Rails.cache.read(counter_key).to_i
+    return if used + requests <= max_calls_per_day
+
+    raise DailyLimitExceededError,
+      "Daily LLM call cap (#{max_calls_per_day}) would be exceeded: #{used} used, #{requests} more needed"
+  end
+
+  # Counts a request as it is issued, not once it succeeds. This overcounts
+  # when a request fails in transit and returns no billable completion, and
+  # that is the intended direction: a cost guard that counted only successes
+  # could not gate at all, because the spend has already happened by the time
+  # the response arrives. Overcounting costs a user some headroom;
+  # undercounting costs money.
+  #
+  # One ask is one billable completion, not one HTTP attempt: RubyLLM wraps the
+  # call in Faraday retry (ruby_llm/connection.rb:106) for rate-limit, 5xx and
+  # timeout conditions, and those attempts return no completion to bill.
   def self.record_call!
-    key = "llm_call_guard/calls_on/#{Date.current}"
-    count = Rails.cache.increment(key, 1, expires_in: 1.day)
+    count = Rails.cache.increment(counter_key, 1, expires_in: 1.day)
     return if count.to_i <= max_calls_per_day
 
     raise DailyLimitExceededError, "Daily LLM call cap (#{max_calls_per_day}) exceeded"
+  end
+
+  # Duck-types the same with_schema(schema).ask(prompt, with: nil).content
+  # interface as StubChat below, counting each request and issuing it against a
+  # freshly built RubyLLM::Chat.
+  #
+  # A fresh chat per ask is what keeps the payload flat. RubyLLM::Chat is
+  # stateful — #ask appends the user message and the assistant reply to
+  # @messages (ruby_llm/chat.rb:40, :167, :229) and re-sends the whole array —
+  # so one chat reused across N rewrites sends a transcript that grows with N.
+  # Nothing is lost by starting fresh: no call site sets system instructions,
+  # and each prompt already re-embeds everything the model needs.
+  #
+  # with_schema returns a NEW handle rather than mutating self, so a handle
+  # shared across experiences (Resume::Optimization) or across Solid Queue
+  # threads cannot leak one call's schema into the next.
+  class MeteredChat
+    attr_reader :schema
+
+    def initialize(schema: nil)
+      @schema = schema
+    end
+
+    def with_schema(schema)
+      self.class.new(schema: schema)
+    end
+
+    def ask(prompt = nil, **options)
+      LlmCallGuard.record_call!
+
+      chat = RubyLLM.chat
+      chat = chat.with_schema(schema) if schema
+      chat.ask(prompt, **options)
+    end
   end
 
   # Duck-types the with_schema(schema).ask(prompt, with: nil).content interface
