@@ -143,3 +143,10 @@ and therefore issues real LLM requests.
 - `ENABLE_REAL_LLM_CALLS`'s default of `false` and `MAX_LLM_CALLS_PER_DAY`'s default of `10`
   remain in the code, now reachable only outside production. Keeping them is what leaves local
   development unchanged.
+- **A coverage gate shaped a production code path here.** The `if Rails.env.production?` on the
+  initializer's call exists because of SimpleCov, not because of the domain — and it is a general
+  hazard, not a one-off: *any* `app/` constant referenced from an initializer is loaded before the
+  test suite forks its parallel workers, and is therefore reported as 0% covered. Expect to make
+  the same call again, and know that the two ways out are conditional loading (this ADR's choice,
+  which costs a boot path the in-process suite cannot see) or accepting the file's exclusion from
+  the gate.
