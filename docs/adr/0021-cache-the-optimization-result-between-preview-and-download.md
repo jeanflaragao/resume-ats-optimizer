@@ -99,6 +99,31 @@ the longest possible wait by one whole expected pipeline (22.75s at N=5). A wait
 gives up strictly *before* the lock can expire, rather than both timing out together while the
 winner finishes an instant later.
 
+**Neither wait is capped, and Solid Queue's own limits are what says that is safe.** A download waits
+inside a worker thread — 81.5s at N=9 — and a pruned process has its claimed executions **failed**,
+not released (`SolidQueue::Process#prune` → `fail_all_claimed_executions_with(ProcessPrunedError)`),
+so a worker reclaimed mid-wait would cost the wait *and* the download. The measured limits:
+
+| | value | source |
+|---|---|---|
+| `SolidQueue.shutdown_timeout` | 5s | gem default, not overridden in `config/` |
+| job execution timeout | none | no ActiveJob timeout, none in the gem, none in `app/` |
+| worker claim interval | 1s | `config/queue.yml:9` |
+| reclaim (prune) sweep | every 5 min | `supervisor/maintenance.rb:11`, a `TimerTask` at `process_alive_threshold` |
+| prune eligibility | `last_heartbeat_at` older than 5 min | `Process::Prunable` |
+| heartbeat | 60s | `process_heartbeat_interval` |
+
+Reclaim cannot fire under a waiting caller, for two independent reasons. The heartbeat is written by
+a separate `Concurrent::TimerTask` (`processes/registrable.rb:39`), not by the worker thread pool, so
+a thread parked in the poll loop keeps its process heartbeating; only a genuinely dead process is
+pruned, and its jobs are lost with or without a wait. And even pretending the two were coupled, the
+wait reaches the 5-minute threshold only at `(0.25 + 4.5N) × 2 = 300` — N ≈ 33 experiences — against
+81.5s at N=9.
+
+What *does* interrupt a wait is a deploy, at `shutdown_timeout` 5s. That is well under the pipeline
+itself (13.85s measured at N=3), so the winner is equally exposed and the wait introduces no new
+failure mode; graceful shutdown releases the execution to run again rather than failing it.
+
 **Misses are counted, per context.** `resume_optimization/<context>_<outcome>_on/<date>`, using
 ADR-0019's idiom — a dated `Rails.cache` counter plus a PII-free log line, not a new instrumentation
 stack. "Miss" means the pipeline ran. The context dimension is what makes the number mean anything:

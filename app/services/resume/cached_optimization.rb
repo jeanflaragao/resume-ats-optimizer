@@ -62,6 +62,31 @@ class Resume::CachedOptimization
   # instant later.
   LOCK_TTL_SAFETY_FACTOR = 3.0
 
+  # --- Why neither wait is capped ---------------------------------------------
+  #
+  # No ceiling from Solid Queue, and the numbers say why. A download waits
+  # inside a worker thread -- 81.5s at N=9 -- and a worker whose process is
+  # pruned has its claimed executions *failed*, not released
+  # (SolidQueue::Process#prune -> fail_all_claimed_executions_with), so being
+  # reclaimed mid-wait would cost the wait and the download both.
+  #
+  # It cannot happen. Pruning needs last_heartbeat_at older than
+  # SolidQueue.process_alive_threshold (5 minutes), swept by the supervisor
+  # every 5 minutes, and the heartbeat is written every 60s by a separate
+  # Concurrent::TimerTask (solid_queue/processes/registrable.rb:39) -- not by
+  # the worker thread pool. A thread parked here keeps its process heartbeating,
+  # so only a genuinely dead process is pruned, and its jobs are lost with or
+  # without a wait.
+  #
+  # Even pretending the two were coupled: the wait only reaches the 5-minute
+  # threshold at (0.25 + 4.5N) x 2 = 300, i.e. N ~= 33 experiences, against
+  # 81.5s at N=9. What does interrupt a wait is a deploy --
+  # SolidQueue.shutdown_timeout is 5s -- but that is well under the pipeline
+  # itself (13.85s measured at N=3), so the winner is equally exposed and the
+  # wait adds no failure mode; a graceful shutdown releases the execution to run
+  # again rather than failing it. There is no job execution timeout anywhere in
+  # the app or the gem.
+
   LOCK_POLL_INTERVAL = 0.25.seconds
 
   class << self
