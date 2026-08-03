@@ -50,6 +50,20 @@ Rails.application.configure do
   config.active_job.queue_adapter = :solid_queue
   config.solid_queue.connects_to = { database: { writing: :queue } }
 
+  # ActiveJob's "Enqueued ... with arguments:" / "Performing ... with arguments:"
+  # lines are emitted at :info, which is this environment's log level (above).
+  # config.filter_parameters is NOT applied to job arguments -- not in this Rails
+  # version, not in any: the PR that would have added it (rails/rails#38963) was
+  # rejected, and log_arguments is the only lever the framework offers. So
+  # :job_description_text being in config/initializers/filter_parameter_logging.rb
+  # never protected the download job's arguments, and ADR-0015's "no job
+  # description content in logs" rule was being violated in production.
+  #
+  # Issue #76 also removes the text from those arguments entirely, so this switch
+  # is defence in depth rather than the fix. It is deliberately global and
+  # deliberately blunt -- see ADR-0022 before removing it while debugging a job.
+  config.active_job.log_arguments = false
+
   # Ignore bad email addresses and do not raise email delivery errors.
   # Set this to true and configure the email server for immediate delivery to raise delivery errors.
   # config.action_mailer.raise_delivery_errors = false

@@ -1,9 +1,14 @@
 # Wires the "Preview optimized resume" button on the resume show page (issue
 # #17) to Resume::CachedOptimization, which wraps Resume::Optimization (#13)
-# and its BulletRewriter/LlmCallGuard calls. job_description_text itself is
-# never persisted — same request-param pattern JobDescriptionsController (#16)
-# already uses; what the cache holds is a digest of it plus the rewrites, for
-# Resume::CachedOptimization::CACHE_TTL (issue #83, ADR-0021).
+# and its BulletRewriter/LlmCallGuard calls. This action never persists
+# job_description_text — same synchronous request-param pattern
+# JobDescriptionsController (#16) already uses; what the cache holds is a digest
+# of it plus the rewrites, for Resume::CachedOptimization::CACHE_TTL (issue #83,
+# ADR-0021).
+#
+# Scoped to this action deliberately, as in #16: the download path below does
+# persist it, encrypted and briefly, because a background job cannot read a
+# request param (issue #76, ADR-0022).
 #
 # The download path (#18) reads through the same cache, so within that window
 # what this action renders is exactly what gets downloaded. Outside it — an

@@ -32,6 +32,21 @@ Rails.application.configure do
   # globally, which would fail every post in test/integration/ for no added signal.
   config.action_controller.allow_forgery_protection = false
 
+  # Throwaway Active Record Encryption keys, so Resume::PdfRequest's `encrypts
+  # :text` works without config/master.key. CI never has it -- the key is
+  # gitignored (.gitignore:35) and .github/workflows/ci.yml sets no
+  # RAILS_MASTER_KEY -- so credentials come back empty there and encrypting
+  # would raise ActiveRecord::Encryption::Errors::Configuration.
+  #
+  # These win over the credentials lookup rather than racing it: activerecord's
+  # "active_record_encryption.configuration" initializer splats
+  # **app.config.active_record.encryption last (railtie.rb:361-367). Test data
+  # is scratch space, so fixed literals here are correct -- the real keys have
+  # no business being reachable from a public repo's CI.
+  config.active_record.encryption.primary_key = "test_encryption_primary_key_do_not_reuse"
+  config.active_record.encryption.deterministic_key = "test_encryption_deterministic_key_nope"
+  config.active_record.encryption.key_derivation_salt = "test_encryption_key_derivation_salt_xx"
+
   # Tell Action Mailer not to deliver emails to the real world.
   # The :test delivery method accumulates sent emails in the
   # ActionMailer::Base.deliveries array.

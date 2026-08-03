@@ -181,7 +181,12 @@ Otherwise standard Rails 8 conventions.
   `Experience` (`company`/`title` required, `bullets:jsonb`) and `Education` (`school` required)
   `belongs_to :resume`. `Resume.owner_token` (nullable, indexed) is a placeholder for a real
   `user_id` FK once auth lands — populated from `current_owner_token`, enforced only at the
-  controller layer.
+  controller layer. `Resume::PdfRequest` (`resume_pdf_requests`: `download_id:uuid` unique,
+  `text` **Active-Record-encrypted, non-deterministic**, `created_at` only) holds a download's
+  pasted job description so it does *not* travel as an Active Job argument — Solid Queue
+  serializes those into a plaintext column that nothing clears for a failed job (issue #76,
+  ADR-0022). Destroyed by the job on success; `.purge_stale!` (`PURGE_AFTER`, 15 minutes, derived
+  on the constant — **not** inherited from ADR-0012) collects the rest from `config/recurring.yml`.
 - **`app/services/resume/`**: import/extraction under the `Resume::` namespace.
   - `Import.call(file:, strategy: "llm" | "regex")` — infers pdf/json from the filename, picks
     the matching extractor, persists via `create!` (rolls back on invalid data rather than
@@ -287,9 +292,13 @@ Otherwise standard Rails 8 conventions.
   HTML template (not an embedded PDF) mirroring `Resume::Pdf`'s layout. Synchronous, no Solid
   Queue.
 - **`app/jobs/resume/optimized_pdf_job.rb`** + **`app/controllers/downloads_controller.rb`**:
-  `create` validates `job_description_text` (same length bound), enqueues
-  `Resume::OptimizedPdfJob.perform_later`, and renders a status page subscribed via
-  `turbo_stream_from`. The job runs `Resume::CachedOptimization` (`context: :download`) →
+  `create` validates `job_description_text` (same length bound), writes it to an encrypted
+  `Resume::PdfRequest`, enqueues `Resume::OptimizedPdfJob.perform_later(resume_id:,
+  pdf_request_id:, download_id:)` — **the text itself is never a job argument** (issue #76,
+  ADR-0022) — and renders a status page subscribed via
+  `turbo_stream_from`. `resume_id`/`download_id` stay in the signature because `record_failure`
+  needs them when the record is gone; a missing request broadcasts `EXPIRED_REQUEST_MESSAGE`
+  rather than hanging the page. The job runs `Resume::CachedOptimization` (`context: :download`) →
   `Resume::Pdf` — within `CACHE_TTL` of the preview this **reuses** the preview's rewrites rather
   than re-running them, which is both the cost fix and the reason the downloaded PDF matches what
   the user approved on screen (issue #83, ADR-0021; on a miss it re-runs, and the bullets then
@@ -303,6 +312,16 @@ Otherwise standard Rails 8 conventions.
   broadcast left the page on "Generating…" forever (ADR-0018). `show` re-verifies ownership via `find_owned_resume!` before
   `send_data`-ing the bytes. `test/system/resume_downloads_test.rb` is the repo's first system
   test, and what caught the ADR-0010/ADR-0014 Turbo Drive gap.
+- **`config/recurring.yml`**: production-only Solid Queue schedule — clears finished Solid Queue
+  jobs hourly, and runs `Resume::PdfRequest.purge_stale!` every 5 minutes. Nothing runs this in
+  dev/test (and nothing runs it in production yet either — issue #48), so
+  `test/config/recurring_test.rb` asserts the entries resolve and that the purge interval stays
+  under `PURGE_AFTER` instead.
+- **Active Record Encryption**: keys live in `config/credentials.yml.enc`. `config/environments/
+  test.rb` sets **throwaway** keys that override them, because CI has no `config/master.key`
+  (gitignored, and the workflow sets no `RAILS_MASTER_KEY`) — without that, anything using
+  `encrypts` raises there. Environment config wins over credentials by design
+  (`activerecord`'s `active_record_encryption.configuration` initializer).
 
 ## Repository setup
 

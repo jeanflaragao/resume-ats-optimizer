@@ -37,6 +37,39 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "Generating your optimized resume PDF"
   end
 
+  # Issue #76. In production the queue adapter is Solid Queue, which serialises
+  # these arguments into solid_queue_jobs.arguments -- a plain text column that
+  # nothing cleans up for a job that failed. Asserting on the serialised
+  # arguments rather than on the argument names, because that payload is what
+  # actually reaches Postgres and the log.
+  test "the enqueued job carries a reference to the job description, never the text" do
+    resume = upload_resume
+    job_description_text = "We need a senior Ruby engineer for the Contoso platform team."
+
+    post resume_downloads_path(resume), params: { job_description_text: job_description_text }
+
+    serialized = enqueued_jobs.last["arguments"].to_json
+    assert_not_includes serialized, job_description_text
+    assert_not_includes serialized, "Contoso"
+    assert_not_includes serialized, "job_description_text"
+
+    # The text did not simply vanish: it is in the encrypted record the queue
+    # now points at, so the job still has something to render from.
+    pdf_request = Resume::PdfRequest.sole
+    assert_equal job_description_text, pdf_request.text
+    assert_equal resume.id, pdf_request.resume_id
+    assert_includes serialized, pdf_request.id.to_s
+  end
+
+  test "no pdf request is created when the job description is rejected" do
+    resume = upload_resume
+
+    assert_no_difference("Resume::PdfRequest.count") do
+      post resume_downloads_path(resume), params: { job_description_text: "" }
+      post resume_downloads_path(resume), params: { job_description_text: "a" * (ApplicationController::MAX_JOB_DESCRIPTION_LENGTH + 1) }
+    end
+  end
+
   test "a job description text over MAX_JOB_DESCRIPTION_LENGTH re-renders the resume's show page with an error, no job enqueued" do
     resume = upload_resume
     oversized_text = "a" * (ApplicationController::MAX_JOB_DESCRIPTION_LENGTH + 1)
