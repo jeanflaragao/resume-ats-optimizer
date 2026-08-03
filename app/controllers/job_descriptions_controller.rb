@@ -1,8 +1,13 @@
 # Wires the job-description textarea on a resume's show page (issue #16) to
 # the already-existing deterministic pipeline (JobDescription::Extractor,
-# Comparison, MatchScore). job_description_text is never persisted — it's
-# passed straight through as a request param, same as those services already
-# expect.
+# Comparison, MatchScore). This action never persists job_description_text — it
+# runs synchronously and passes the text straight through as a request param,
+# same as those services already expect.
+#
+# Scoped to this action deliberately: the claim used to read as if it held
+# app-wide, which is what hid the fact that the download path (#18) has to
+# persist the text to hand it to a background job. See DownloadsController's
+# header and ADR-0022.
 class JobDescriptionsController < ApplicationController
   def create
     @resume = find_owned_resume!(params[:resume_id])

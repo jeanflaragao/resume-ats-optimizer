@@ -1,6 +1,17 @@
 # Issue #18: enqueues Resume::OptimizedPdfJob and serves its finished bytes.
-# job_description_text is never persisted -- resubmitted from the preview
-# page's hidden field, same "request param only" pattern #16/#17 already use.
+#
+# This is the one path where job_description_text IS persisted, and the comment
+# here used to claim otherwise. It has to be: the work happens off the request
+# thread, so the text must outlive the request that carried it, and passing it
+# as an Active Job argument meant Solid Queue writing it to
+# solid_queue_jobs.arguments in plaintext with no retention bound for a job that
+# failed (issue #76). It now goes to an encrypted Resume::PdfRequest that the
+# job destroys on success and Resume::PdfRequest.purge_stale! collects
+# otherwise; the queue only carries its id. ADR-0022.
+#
+# JobDescriptionsController (#16) and PreviewsController (#17) are synchronous
+# and genuinely never persist it -- that half of the old claim was true, and is
+# what made the exception here easy to miss.
 class DownloadsController < ApplicationController
   # Fallback for a real race confirmed via manual testing: Resume::OptimizedPdfJob
   # can finish and broadcast its Turbo Stream update before the status page's
