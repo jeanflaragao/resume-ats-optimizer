@@ -16,6 +16,13 @@
 class Resume::OptimizedPdfJob < ApplicationJob
   queue_as :default
 
+  # Belt to production.rb's braces (issue #76). That setting is production-only;
+  # this one also covers development, where the same "Enqueued ... with
+  # arguments:" line is written to log/development.log. Nothing sensitive is in
+  # the arguments any more -- three ids -- so this is defence in depth against a
+  # future argument, not the fix. See ADR-0022 before removing it.
+  self.log_arguments = false
+
   CACHE_EXPIRY = 15.minutes
 
   GENERIC_FAILURE_MESSAGE = "Something went wrong generating your PDF. Please try again.".freeze
@@ -43,10 +50,26 @@ class Resume::OptimizedPdfJob < ApplicationJob
     "Arrows" => "symbols"
   }.freeze
 
-  def perform(resume_id:, job_description_text:, download_id:)
+  EXPIRED_REQUEST_MESSAGE = "This download request expired before we could start on it. " \
+                            "Please generate a new one — your resume is saved.".freeze
+
+  def perform(resume_id:, pdf_request_id:, download_id:)
+    # find_by, not find: a missing request is an expected state, not a bug. It
+    # means the row was purged before a backed-up queue reached this job
+    # (Resume::PdfRequest::PURGE_AFTER), or this job already succeeded and is
+    # being retried. Either way there is no input to work from -- but the page
+    # is still waiting, so say so rather than dying silently and leaving it on
+    # "Generating..." forever.
+    pdf_request = Resume::PdfRequest.find_by(id: pdf_request_id)
+
+    if pdf_request.nil?
+      Rails.logger.warn("Resume::OptimizedPdfJob found no pdf_request #{pdf_request_id} for resume #{resume_id}")
+      return record_failure(resume_id, download_id, EXPIRED_REQUEST_MESSAGE)
+    end
+
     resume = Resume.find(resume_id)
     optimized = Resume::CachedOptimization.call(
-      resume: resume, job_description_text: job_description_text, context: :download
+      resume: resume, job_description_text: pdf_request.text, context: :download
     )
     pdf_bytes = Resume::Pdf.call(resume: optimized)
 
@@ -58,6 +81,11 @@ class Resume::OptimizedPdfJob < ApplicationJob
       partial: "downloads/ready",
       locals: { download_id: download_id }
     )
+
+    # Last, so the text outlives every step that could still need it. A failure
+    # deliberately leaves the row alone -- purge_stale! collects it -- so the
+    # record is not destroyed out from under a job that raised on the way here.
+    pdf_request.destroy
   rescue Resume::Pdf::UnrenderableCharacterError => e
     # Safe to log the message here, unlike the blanket rescue below: this error
     # is constructed by Resume::Pdf and carries only a Unicode block name and a

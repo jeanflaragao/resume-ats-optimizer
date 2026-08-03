@@ -23,11 +23,7 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     download_id = SecureRandom.uuid
 
     assert_turbo_stream_broadcasts "download_#{download_id}" do
-      Resume::OptimizedPdfJob.perform_now(
-        resume_id: resume.id,
-        job_description_text: "We need a Ruby engineer.",
-        download_id: download_id
-      )
+      perform_download(resume, download_id)
     end
 
     cached = Rails.cache.read(Resume::OptimizedPdfJob.cache_key(download_id))
@@ -50,11 +46,7 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     Rails.logger = Logger.new(io)
 
     assert_raises(RubyLLM::ServiceUnavailableError) do
-      Resume::OptimizedPdfJob.perform_now(
-        resume_id: resume.id,
-        job_description_text: "We need a Ruby engineer.",
-        download_id: download_id
-      )
+      perform_download(resume, download_id)
     end
 
     log_output = io.string
@@ -79,11 +71,7 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     Rails.logger = Logger.new(io)
 
     assert_raises(Resume::Pdf::UnrenderableCharacterError) do
-      Resume::OptimizedPdfJob.perform_now(
-        resume_id: resume.id,
-        job_description_text: "We need a Ruby engineer.",
-        download_id: download_id
-      )
+      perform_download(resume, download_id)
     end
 
     log_output = io.string
@@ -104,11 +92,7 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
 
     broadcasts = capture_turbo_stream_broadcasts "download_#{download_id}" do
       assert_raises(Resume::Pdf::UnrenderableCharacterError) do
-        Resume::OptimizedPdfJob.perform_now(
-          resume_id: resume.id,
-          job_description_text: "We need a Ruby engineer.",
-          download_id: download_id
-        )
+        perform_download(resume, download_id)
       end
     end
 
@@ -127,11 +111,7 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     Resume::Optimization.define_singleton_method(:call) { |**| raise "boom" }
 
     assert_raises(RuntimeError) do
-      Resume::OptimizedPdfJob.perform_now(
-        resume_id: resume.id,
-        job_description_text: "We need a Ruby engineer.",
-        download_id: download_id
-      )
+      perform_download(resume, download_id)
     end
 
     cached = Rails.cache.read(Resume::OptimizedPdfJob.cache_key(download_id))
@@ -156,11 +136,7 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
 
     broadcasts = capture_turbo_stream_broadcasts "download_#{download_id}" do
       assert_raises(LlmCallGuard::DailyLimitExceededError) do
-        Resume::OptimizedPdfJob.perform_now(
-          resume_id: resume.id,
-          job_description_text: "We need a Ruby engineer.",
-          download_id: download_id
-        )
+        perform_download(resume, download_id)
       end
     end
 
@@ -182,11 +158,7 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     end
 
     assert_raises(LlmCallGuard::BudgetUnavailableError) do
-      Resume::OptimizedPdfJob.perform_now(
-        resume_id: resume.id,
-        job_description_text: "We need a Ruby engineer.",
-        download_id: download_id
-      )
+      perform_download(resume, download_id)
     end
 
     cached = Rails.cache.read(Resume::OptimizedPdfJob.cache_key(download_id))
@@ -204,11 +176,7 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
 
     broadcasts = capture_turbo_stream_broadcasts "download_#{download_id}" do
       assert_raises(RuntimeError) do
-        Resume::OptimizedPdfJob.perform_now(
-          resume_id: resume.id,
-          job_description_text: "We need a Ruby engineer.",
-          download_id: download_id
-        )
+        perform_download(resume, download_id)
       end
     end
 
@@ -219,5 +187,64 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     assert_includes broadcasts.first.to_s, "went wrong"
   ensure
     Resume::Optimization.define_singleton_method(:call, original_call)
+  end
+
+  # Issue #76: the job description now lives in a Resume::PdfRequest rather than
+  # in the job's arguments, so the row must not outlive the work it exists for.
+  test "the pdf request is destroyed once the PDF has been rendered" do
+    resume = resumes(:one)
+    resume.experiences.create!(company: "Acme", title: "Engineer", bullets: [ "Built REST APIs" ], position: 1)
+
+    perform_download(resume, SecureRandom.uuid)
+
+    assert_not Resume::PdfRequest.exists?(@pdf_request.id)
+  end
+
+  # The mirror of the test above: a failure keeps the row so the work is not
+  # lost mid-flight, and Resume::PdfRequest.purge_stale! is what removes it.
+  test "a failed job leaves the pdf request for the scheduled purge" do
+    resume = resumes(:one)
+    original_call = Resume::Optimization.method(:call)
+    Resume::Optimization.define_singleton_method(:call) { |**| raise "boom" }
+
+    assert_raises(RuntimeError) { perform_download(resume, SecureRandom.uuid) }
+
+    assert Resume::PdfRequest.exists?(@pdf_request.id)
+  ensure
+    Resume::Optimization.define_singleton_method(:call, original_call)
+  end
+
+  # A purged or already-completed request is an expected state, not a bug --
+  # but the status page is still subscribed and waiting, so it must be told.
+  # Reporting nothing here reintroduces exactly the "Generating..." hang
+  # ADR-0018 closed, just through a new door.
+  test "a missing pdf request reports an expired download instead of hanging the page" do
+    resume = resumes(:one)
+    download_id = SecureRandom.uuid
+
+    broadcasts = capture_turbo_stream_broadcasts "download_#{download_id}" do
+      Resume::OptimizedPdfJob.perform_now(
+        resume_id: resume.id, pdf_request_id: 0, download_id: download_id
+      )
+    end
+
+    cached = Rails.cache.read(Resume::OptimizedPdfJob.cache_key(download_id))
+    assert_equal resume.id, cached[:resume_id]
+    assert_equal Resume::OptimizedPdfJob::EXPIRED_REQUEST_MESSAGE, cached[:error]
+    assert_nil cached[:bytes]
+    assert_includes broadcasts.first.to_s, "expired"
+  end
+
+  private
+
+  # Issue #76: the job takes a Resume::PdfRequest id, never the text itself.
+  # Exposes the record it created as @pdf_request so the two lifecycle tests can
+  # still name it after perform_now has either destroyed it or raised past it.
+  def perform_download(resume, download_id, text: "We need a Ruby engineer.")
+    @pdf_request = Resume::PdfRequest.create!(resume: resume, download_id: download_id, text: text)
+
+    Resume::OptimizedPdfJob.perform_now(
+      resume_id: resume.id, pdf_request_id: @pdf_request.id, download_id: download_id
+    )
   end
 end

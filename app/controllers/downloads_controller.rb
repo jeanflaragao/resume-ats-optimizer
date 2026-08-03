@@ -37,10 +37,25 @@ class DownloadsController < ApplicationController
       template = "resumes/show"
       status = :unprocessable_entity
     else
-      @download_id = SecureRandom.uuid
+      # Issue #76: the text goes into an encrypted, short-lived Resume::PdfRequest
+      # and the queue gets its id. Passing it as a job argument put it in
+      # solid_queue_jobs.arguments in plaintext, with no retention bound for
+      # jobs that failed.
+      pdf_request = Resume::PdfRequest.create!(
+        resume: @resume, download_id: SecureRandom.uuid, text: job_description_text
+      )
+      @download_id = pdf_request.download_id
+
+      # resume_id and download_id stay as arguments alongside the reference.
+      # Both are non-sensitive (a bigint and a random uuid) and the job's failure
+      # path needs them without the record: record_failure broadcasts to
+      # download_id and writes resume_id for DownloadsController#ready's
+      # ownership check, so a pdf_request_id-only signature would leave an
+      # expired or purged request stuck on "Generating..." -- the exact hang
+      # ADR-0018 closed.
       Resume::OptimizedPdfJob.perform_later(
         resume_id: @resume.id,
-        job_description_text: job_description_text,
+        pdf_request_id: pdf_request.id,
         download_id: @download_id
       )
       template = "downloads/create"
