@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_01_025639) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_03_000637) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -41,6 +41,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_01_025639) do
     t.index ["resume_id"], name: "index_experiences_on_resume_id"
   end
 
+  create_table "resume_pdf_requests", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.uuid "download_id", null: false
+    t.bigint "resume_id", null: false
+    t.text "text", null: false
+    t.index ["created_at"], name: "index_resume_pdf_requests_on_created_at"
+    t.index ["download_id"], name: "index_resume_pdf_requests_on_download_id", unique: true
+    t.index ["resume_id"], name: "index_resume_pdf_requests_on_resume_id"
+  end
+
   create_table "resumes", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "email"
@@ -56,4 +66,5 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_01_025639) do
 
   add_foreign_key "educations", "resumes"
   add_foreign_key "experiences", "resumes"
+  add_foreign_key "resume_pdf_requests", "resumes", on_delete: :cascade
 end
