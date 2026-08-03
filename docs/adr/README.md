@@ -31,3 +31,5 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0021 | Cache the optimization result between preview and download, keyed by a job-description digest | Accepted | [0021-cache-the-optimization-result-between-preview-and-download.md](0021-cache-the-optimization-result-between-preview-and-download.md) |
 | 0022 | Pass the download job a job-description reference, not the text | Accepted | [0022-job-description-reference-instead-of-queue-argument.md](0022-job-description-reference-instead-of-queue-argument.md) |
 | 0023 | Per-session usage quotas in Postgres, alongside (not instead of) the global LLM cap | Accepted | [0023-per-session-usage-quotas-in-postgres.md](0023-per-session-usage-quotas-in-postgres.md) |
+| 0024 | Add a CJK fallback font, and refuse scripts requiring text shaping even when glyphs exist | Accepted | [0024-refuse-scripts-requiring-shaping.md](0024-refuse-scripts-requiring-shaping.md) |
+| 0025 | Check PDF renderability before spending quota, and resolve fallback fonts lazily | Accepted | [0025-check-renderability-before-spending-quota.md](0025-check-renderability-before-spending-quota.md) |
