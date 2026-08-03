@@ -27,6 +27,15 @@ class LlmCallGuardBootTest < ActiveSupport::TestCase
     "ANTHROPIC_API_KEY" => nil
   }.freeze
 
+  # Issue #22 added a second boot check (config/initializers/usage_quota.rb,
+  # ADR-0023) with its own four required variables. It runs after this one --
+  # initializers load alphabetically, llm_call_guard before usage_quota -- so
+  # the two refusal tests below are unaffected: they never get that far. The
+  # "boots normally" counterweight does, and has to satisfy both checks or it
+  # would pass for the wrong reason, reporting a refusal from the wrong guard.
+  # The quota guard's own boot cases live in test/config/usage_quota_boot_test.rb.
+  QUOTA_ENV = Usage::Quota::ACTION_TYPES.to_h { |a| [ Usage::Quota.env_var_for(a), "200" ] }.freeze
+
   def boot_production(**overrides)
     Open3.capture2e(
       BASE_ENV.merge(overrides.transform_keys(&:to_s)),
@@ -56,7 +65,8 @@ class LlmCallGuardBootTest < ActiveSupport::TestCase
     output = boot_production(
       "ENABLE_REAL_LLM_CALLS" => "true",
       "MAX_LLM_CALLS_PER_DAY" => "200",
-      "ANTHROPIC_API_KEY" => "sk-ant-not-a-real-key"
+      "ANTHROPIC_API_KEY" => "sk-ant-not-a-real-key",
+      **QUOTA_ENV
     )
 
     assert_match(/BOOTED-OK/, output)

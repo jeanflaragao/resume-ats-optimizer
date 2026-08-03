@@ -30,6 +30,12 @@ class PreviewsController < ApplicationController
       template = "resumes/show"
       status = :unprocessable_entity
     else
+      # Charged per attempt, before Resume::CachedOptimization can report
+      # whether this would have been a free cache hit. Deciding that first
+      # would mean enforcing the quota inside that class, after the lock and
+      # potentially after a full pipeline — which is the opposite of failing
+      # fast. Sizing absorbs the re-previews (issue #22, ADR-0023).
+      enforce_quota!(:bullet_rewriting)
       @optimized_resume = Resume::CachedOptimization.call(
         resume: @resume, job_description_text: @job_description_text, context: :preview
       )

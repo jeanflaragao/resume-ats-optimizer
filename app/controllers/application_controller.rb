@@ -42,6 +42,25 @@ class ApplicationController < ActionController::Base
     redirect_back_or_to root_path, flash: { alert: "We can't process resumes right now. Please try again in a moment." }
   end
 
+  # Issue #22's per-subject quota, distinct from both handlers above. The two
+  # LlmCallGuard errors are about the service as a whole — "we"; this one is
+  # about this session specifically — "you" — and the wording has to make that
+  # difference legible, because the remedy is different. A user who hits the
+  # global cap can do nothing but wait; a user who hits their own quota has
+  # been told, accurately, that they are the reason.
+  #
+  # Logs the exception class and the action type. The action type is an
+  # internal enum from Usage::Quota::ACTION_TYPES, not user content. The
+  # subject token is deliberately absent: it is the session credential
+  # find_owned_resume! authorizes against, so logging it would put a working
+  # key to someone's resume in the log file (ADR-0015).
+  rescue_from Usage::Quota::ExceededError do |e|
+    Rails.logger.warn("#{controller_name}##{action_name}: #{e.class} (#{e.action})")
+    redirect_back_or_to root_path, flash: { alert:
+      "You've reached your daily limit for #{Usage::Quota.label_for(e.action)} " \
+      "(#{e.limit} per day). Please try again tomorrow." }
+  end
+
   rescue_from BulletRewriter::MismatchedBulletCountError do |e|
     Rails.logger.warn("#{controller_name}##{action_name}: #{e.class}")
     redirect_back_or_to root_path, flash: { alert: "We had trouble rewriting your resume bullets. Please try again." }
@@ -76,5 +95,25 @@ class ApplicationController < ActionController::Base
   # (ResumesController#show, JobDescriptionsController#create).
   def find_owned_resume!(id)
     Resume.find_by!(id: id, owner_token: current_owner_token)
+  end
+
+  # Issue #22. Charges one use of `action` to this session and raises
+  # Usage::Quota::ExceededError — handled by the rescue_from above — if that
+  # puts it over the daily limit.
+  #
+  # Called explicitly at the top of each quotaed action rather than declared as
+  # a before_action, because in three of the four it has to run *after* the
+  # existing blank/length guards: rejecting an over-long job description
+  # (MAX_JOB_DESCRIPTION_LENGTH) costs nothing, so it must not cost a slot
+  # either. A before_action runs before the action body and could not express
+  # that ordering.
+  #
+  # Placed before any work in every case — before Resume::Import, before the
+  # extractor, before Resume::CachedOptimization, and in DownloadsController
+  # before both the Resume::PdfRequest write and the perform_later. Failing
+  # here spends no Anthropic request, no Solid Queue worker, and writes no
+  # job-description row.
+  def enforce_quota!(action)
+    Usage::Quota.consume!(subject: current_owner_token, action: action)
   end
 end

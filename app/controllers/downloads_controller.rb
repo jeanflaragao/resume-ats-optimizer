@@ -48,6 +48,13 @@ class DownloadsController < ApplicationController
       template = "resumes/show"
       status = :unprocessable_entity
     else
+      # Before the row and before the enqueue, so a refused download leaves no
+      # job-description copy on disk and never occupies a worker (issue #22).
+      # This is also why Resume::OptimizedPdfJob needs no handler for
+      # Usage::Quota::ExceededError the way it needs one for the global cap:
+      # the job cannot be reached with the quota already spent.
+      enforce_quota!(:pdf_generation)
+
       # Issue #76: the text goes into an encrypted, short-lived Resume::PdfRequest
       # and the queue gets its id. Passing it as a job argument put it in
       # solid_queue_jobs.arguments in plaintext, with no retention bound for

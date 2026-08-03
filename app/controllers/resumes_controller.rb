@@ -24,6 +24,10 @@ class ResumesController < ApplicationController
       return render :new, status: :unprocessable_entity
     end
 
+    # After the two cheap rejections above, before the Anthropic request inside
+    # Resume::Import (issue #22).
+    enforce_quota!(:resume_extraction)
+
     resume = Resume::Import.call(file: params[:file], strategy: DEFAULT_STRATEGY)
     resume.update!(owner_token: current_owner_token)
 
