@@ -293,12 +293,10 @@ class LlmCallGuard
         # returning an empty array.
         { "bullets" => prompt.to_s.scan(/^\d+\.\s+(.+)$/).flatten.map { |bullet| "#{STUB_LABEL} #{bullet}" } }
       when "JobDescription::ExtractionSchema"
-        {
-          "title" => STUB_LABEL,
-          "required_skills" => [],
-          "preferred_skills" => [],
-          "keywords" => []
-        }
+        # Every key the schema can return, not a subset: a stub that omits
+        # fields would exercise a different shape than production and hide a
+        # nil-handling bug until it reached a real user.
+        JobDescription::Extractor::EMPTY_RESULT.merge("title" => STUB_LABEL)
       else
         raise NotImplementedError, "LlmCallGuard::StubChat has no stub response for #{@schema.inspect}"
       end
