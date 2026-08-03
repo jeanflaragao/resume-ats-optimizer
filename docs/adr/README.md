@@ -30,3 +30,4 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0020 | Refuse to boot production on LlmCallGuard's local-testing defaults | Accepted | [0020-fail-closed-llm-guard-configuration-in-production.md](0020-fail-closed-llm-guard-configuration-in-production.md) |
 | 0021 | Cache the optimization result between preview and download, keyed by a job-description digest | Accepted | [0021-cache-the-optimization-result-between-preview-and-download.md](0021-cache-the-optimization-result-between-preview-and-download.md) |
 | 0022 | Pass the download job a job-description reference, not the text | Accepted | [0022-job-description-reference-instead-of-queue-argument.md](0022-job-description-reference-instead-of-queue-argument.md) |
+| 0023 | Per-session usage quotas in Postgres, alongside (not instead of) the global LLM cap | Accepted | [0023-per-session-usage-quotas-in-postgres.md](0023-per-session-usage-quotas-in-postgres.md) |

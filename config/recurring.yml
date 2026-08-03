@@ -28,3 +28,15 @@ production:
   purge_stale_pdf_requests:
     command: "Resume::PdfRequest.purge_stale!"
     schedule: every 5 minutes
+
+  # Issue #22. Unlike the purge above, nothing here is time-critical: these rows
+  # hold no user content, only a session token, an action name and a count, and
+  # Usage::Counter::RETAIN_FOR keeps six days of slack over the one-day period
+  # they enforce. Daily rather than five-minutely because the point is to stop
+  # the table growing without bound, not to shorten an exposure window -- and
+  # because a subject's expired counters are the only history available for
+  # sizing the production limits, so deleting them promptly would be actively
+  # unhelpful.
+  purge_stale_usage_counters:
+    command: "Usage::Counter.purge_stale!"
+    schedule: every day at 3:17am

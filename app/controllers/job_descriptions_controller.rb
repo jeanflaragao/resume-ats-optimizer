@@ -20,6 +20,7 @@ class JobDescriptionsController < ApplicationController
       flash.now[:alert] = "That job description is too long (maximum #{MAX_JOB_DESCRIPTION_LENGTH} characters). Please shorten it and try again."
       status = :unprocessable_entity
     else
+      enforce_quota!(:requirement_extraction)
       requirements = JobDescription::Extractor.call(text: @job_description_text)
       @comparison = Comparison.call(resume: @resume, requirements: requirements)
       @match_score = MatchScore.call(comparison: @comparison)

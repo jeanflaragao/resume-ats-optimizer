@@ -201,6 +201,14 @@ Otherwise standard Rails 8 conventions.
   serializes those into a plaintext column that nothing clears for a failed job (issue #76,
   ADR-0022). Destroyed by the job on success; `.purge_stale!` (`PURGE_AFTER`, 15 minutes, derived
   on the constant — **not** inherited from ADR-0012) collects the rest from `config/recurring.yml`.
+  `Usage::Counter` (`usage_counters`, table name set explicitly — `Usage` is a plain module, so
+  Rails' nested-model prefixing does not apply) is issue #22's quota storage: unique on
+  `(subject_token, action_type, period, period_start)`, and `.consume!` is a **single
+  `upsert_all` with `on_duplicate: count = count + 1 ... RETURNING count`** — read-then-write
+  loses updates exactly when two requests for one subject overlap, which is the case a rate limit
+  exists to catch. `subject_token` holds `current_owner_token` and **must never be logged**: it is
+  the credential `find_owned_resume!` authorizes against. `.purge_stale!` (`RETAIN_FOR`, 7 days —
+  raise it before adding a monthly period) runs daily from `config/recurring.yml`.
 - **`app/services/resume/`**: import/extraction under the `Resume::` namespace.
   - `Import.call(file:, strategy: "llm" | "regex")` — infers pdf/json from the filename, picks
     the matching extractor, persists via `create!` (rolls back on invalid data rather than
@@ -289,6 +297,22 @@ Otherwise standard Rails 8 conventions.
   returning `nil`: `:null_store`, or a transient error Solid Cache's failsafe swallows) **fails
   closed** with the distinct `LlmCallGuard::BudgetUnavailableError` — "we can't see the budget"
   gets "try again in a moment", not the cap's "try again tomorrow".
+- **`app/services/usage/quota.rb`**: `Usage::Quota.consume!(subject:, action:)` — issue #22's
+  **per-subject** layer, a separate mechanism from the global cap above and deliberately not a
+  replacement for it (#45 stays open to merge them). Four `ACTION_TYPES`
+  (`resume_extraction`/`requirement_extraction`/`bullet_rewriting`/`pdf_generation`) with
+  independent daily limits, because they cost unequally; the issue body names only the last three,
+  but the upload is a real provider request and the first thing a visitor can trigger (ADR-0023).
+  Increments then compares, like `LlmCallGuard.record_call!`, so two concurrent requests can't both
+  read an under-limit count. **The subject is a browser session, not a person** —
+  `current_owner_token`, because no `User` model exists (ADR-0007) — so an incognito window is a
+  fresh quota. That is why #45's comment claiming #22 unblocks public signup is wrong: the
+  prerequisite is real auth with this attached to it. Limits come from
+  `RATE_LIMIT_<ACTION>_PER_DAY`, with **no production default**: `validate_configuration!` (from
+  `config/initializers/usage_quota.rb`, same shape and `SECRET_KEY_BASE_DUMMY` exemption as
+  ADR-0020) refuses to boot without all four. `Usage::Quota::ExceededError` is **not** a subclass
+  of `DailyLimitExceededError` — "you're out of budget" and "we're out of budget" are different
+  facts with different remedies, so they get different flash wording.
 - **`app/controllers/resumes_controller.rb`**: `new`/`create`/`show`. `create` passes the upload
   straight into `Resume::Import.call` (strategy hardcoded to `"llm"`, not user-selectable),
   enforcing `MAX_UPLOAD_BYTES` first (ADR-0017). Rescues invalid/unsupported-format and
@@ -298,7 +322,12 @@ Otherwise standard Rails 8 conventions.
   textarea on `resumes/show.html.erb` to `JobDescription::Extractor` → `Comparison` →
   `MatchScore`, enforcing `MAX_JOB_DESCRIPTION_LENGTH` (ADR-0017). `MatchScore.call`'s `nil` case
   renders a distinct message rather than a misleading 0%. Uses `find_owned_resume!` (shared by
-  every controller below).
+  every controller below), and `enforce_quota!` — `ApplicationController`'s other shared helper,
+  called explicitly at the top of all four quotaed actions rather than as a `before_action`,
+  because it must run *after* the blank/length guards (a rejected over-long job description must
+  not cost a slot) and before any work. In `DownloadsController` that means before both the
+  `Resume::PdfRequest` write and the `perform_later`, which is why `Resume::OptimizedPdfJob` needs
+  no handler for `Usage::Quota::ExceededError` the way it needs one for the global cap.
 - **`app/controllers/previews_controller.rb`**: `create` wires the "Preview optimized resume"
   button to `Resume::CachedOptimization` (`context: :preview`), same length-bound pattern. `job_description_text` is
   resubmitted via a hidden field kept in sync with the visible textarea
@@ -327,10 +356,12 @@ Otherwise standard Rails 8 conventions.
   `send_data`-ing the bytes. `test/system/resume_downloads_test.rb` is the repo's first system
   test, and what caught the ADR-0010/ADR-0014 Turbo Drive gap.
 - **`config/recurring.yml`**: production-only Solid Queue schedule — clears finished Solid Queue
-  jobs hourly, and runs `Resume::PdfRequest.purge_stale!` every 5 minutes. Nothing runs this in
+  jobs hourly, runs `Resume::PdfRequest.purge_stale!` every 5 minutes, and
+  `Usage::Counter.purge_stale!` daily (nothing here is time-critical: no user content, and
+  `RETAIN_FOR` leaves six days of slack over the one-day period it enforces). Nothing runs this in
   dev/test (and nothing runs it in production yet either — issue #48), so
-  `test/config/recurring_test.rb` asserts the entries resolve and that the purge interval stays
-  under `PURGE_AFTER` instead.
+  `test/config/recurring_test.rb` asserts the entries resolve and that each purge interval stays
+  under the window it enforces instead.
 - **Active Record Encryption**: keys live in `config/credentials.yml.enc`. `config/environments/
   test.rb` sets **throwaway** keys that override them, because CI has no `config/master.key`
   (gitignored, and the workflow sets no `RAILS_MASTER_KEY`) — without that, anything using

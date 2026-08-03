@@ -18,19 +18,32 @@ class RecurringConfigTest < ActiveSupport::TestCase
     assert_respond_to Resume::PdfRequest, :purge_stale!
   end
 
+  test "the usage counter purge is scheduled and its command resolves" do
+    task = @production[:purge_stale_usage_counters]
+
+    assert_not_nil task, "purge_stale_usage_counters is missing from config/recurring.yml"
+    assert_equal "Usage::Counter.purge_stale!", task[:command]
+    assert_respond_to Usage::Counter, :purge_stale!
+  end
+
   test "every recurring schedule parses" do
     @production.each do |name, task|
       assert_not_nil Fugit.parse(task[:schedule]), "#{name} has an unparseable schedule: #{task[:schedule]}"
     end
   end
 
-  # The purge has to run more often than the window it enforces, or the window
-  # is really PURGE_AFTER plus the gap between runs.
-  test "the purge runs more often than the retention window it enforces" do
-    cron = Fugit.parse(@production[:purge_stale_pdf_requests][:schedule])
-    first = cron.next_time(Time.current)
-    interval = cron.next_time(first.to_t).to_t - first.to_t
+  # A purge has to run more often than the window it enforces, or the window is
+  # really that window plus the gap between runs.
+  test "each purge runs more often than the retention window it enforces" do
+    {
+      purge_stale_pdf_requests: Resume::PdfRequest::PURGE_AFTER,
+      purge_stale_usage_counters: Usage::Counter::RETAIN_FOR
+    }.each do |task, window|
+      cron = Fugit.parse(@production[task][:schedule])
+      first = cron.next_time(Time.current)
+      interval = cron.next_time(first.to_t).to_t - first.to_t
 
-    assert_operator interval, :<, Resume::PdfRequest::PURGE_AFTER.to_i
+      assert_operator interval, :<, window.to_i, "#{task} runs less often than the window it enforces"
+    end
   end
 end

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_03_000637) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_03_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -62,6 +62,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_03_000637) do
     t.text "summary"
     t.datetime "updated_at", null: false
     t.index ["owner_token"], name: "index_resumes_on_owner_token"
+  end
+
+  create_table "usage_counters", force: :cascade do |t|
+    t.string "action_type", null: false
+    t.integer "count", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.string "period", null: false
+    t.date "period_start", null: false
+    t.string "subject_token", null: false
+    t.datetime "updated_at", null: false
+    t.index ["period_start"], name: "index_usage_counters_on_period_start"
+    t.index ["subject_token", "action_type", "period", "period_start"], name: "index_usage_counters_on_subject_action_period", unique: true
   end
 
   add_foreign_key "educations", "resumes"
