@@ -39,8 +39,8 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
 
   # Issue #76. In production the queue adapter is Solid Queue, which serialises
   # these arguments into solid_queue_jobs.arguments -- a plain text column that
-  # nothing cleans up for a job that failed. Asserting on the serialised form
-  # rather than on the argument names, because it is the serialised form that
+  # nothing cleans up for a job that failed. Asserting on the serialised
+  # arguments rather than on the argument names, because that payload is what
   # actually reaches Postgres and the log.
   test "the enqueued job carries a reference to the job description, never the text" do
     resume = upload_resume
@@ -48,7 +48,7 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
 
     post resume_downloads_path(resume), params: { job_description_text: job_description_text }
 
-    serialized = enqueued_jobs.last.to_json
+    serialized = enqueued_jobs.last["arguments"].to_json
     assert_not_includes serialized, job_description_text
     assert_not_includes serialized, "Contoso"
     assert_not_includes serialized, "job_description_text"
