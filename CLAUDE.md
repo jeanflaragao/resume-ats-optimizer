@@ -33,6 +33,20 @@ List every conflict explicitly rather than resolving any silently — even when 
 resolution seems obviously correct. The issue body is the source of truth; the prompt may
 be based on stale context.
 
+## Working agreements
+
+**List every departure from the prompt.** If the instructions given conflict
+with what the repo actually contains — a taken ADR number, a signature that
+would break an existing behaviour, a config that does not exist — surface the
+conflict and your recommendation before writing code. Do not silently resolve
+it, and do not follow the prompt into a known-wrong outcome. The prompt is
+input to be reviewed, not a spec to be executed.
+
+**Prove new safety assertions are non-vacuous.** Any test that asserts a
+security or privacy property must be run against the unfixed code first and
+shown to fail. Record that it failed in the PR body. A green test that would
+also be green without the fix is worse than no test.
+
 ## Verification — all inside the container
 
 - `docker compose run --rm web bin/rails test`
