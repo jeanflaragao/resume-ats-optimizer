@@ -13,3 +13,18 @@ production:
   clear_solid_queue_finished_jobs:
     command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
     schedule: every hour at minute 12
+
+  # Issue #76. A successful download deletes its own request, so this only ever
+  # collects two things: requests whose job failed, and requests the queue never
+  # got to. Neither is cleaned up by the task above -- a failed job is not
+  # "finished" (Solid Queue creates a FailedExecution and stops), which is how
+  # the plaintext job descriptions this replaced came to have no retention bound
+  # at all.
+  #
+  # Every five minutes against a fifteen-minute window: the schedule is the
+  # error term on the retention promise, so a row lives at most ~20 minutes
+  # rather than exactly 15. Resume::PdfRequest::PURGE_AFTER carries the
+  # derivation of the window itself.
+  purge_stale_pdf_requests:
+    command: "Resume::PdfRequest.purge_stale!"
+    schedule: every 5 minutes
