@@ -61,7 +61,28 @@ proof of visible rendering — the glyphs are genuinely visible, not blank `.not
 Conversion cost: 16,437,364 bytes (CFF, official) → 19,941,740 bytes (converted TrueType), a ~21%
 size increase — glyf outlines are typically larger than the equivalent CFF outlines for the same
 glyph set. Conversion took ~58s for the full ~65,000-glyph font (one-time, at vendoring time —
-this repository ships the converted binary, not the conversion step).
+this repository ships the converted binary, not the conversion step; the ~65,000-glyph,
+CPU-bound conversion is not something to run in CI).
+
+**Provenance**, so this is an artifact description and not just a method description:
+
+- Source: `NotoSansCJKsc-Regular.otf` from `notofonts/noto-cjk` release `Sans2.004`
+  (`08_NotoSansCJKsc.zip`), sha256
+  `2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b` — re-downloaded from the
+  same release URL and re-hashed while writing this line; GitHub release assets are immutable, so
+  this is expected to stay reproducible.
+- Committed artifact: `vendor/fonts/NotoSansCJKsc-Regular.ttf`, sha256
+  `a509c2e16bb1fd1a8214212a6464abc9e42a6ca1f5aa5dab721cde4fcaea3e06`.
+- Toolchain: `fonttools` 4.63.0 (`otf2ttf` 0.2, `cu2qu` 1.6.7.post2) on Python 3.12.13. **Caveat,
+  stated rather than hidden**: this is the toolchain from a *reproduction* run made while
+  addressing this review comment, not a log captured during the original conversion — the
+  original session did not record `fonttools --version`. Re-running that reproduction against the
+  source hash above produced a file matching the committed one in every byte except 9 (`cmp -l`),
+  consistent with a build timestamp embedded in the `head` table rather than a functional
+  difference — `otf2ttf`/`fonttools` do not claim byte-for-byte reproducibility across runs, only
+  functional equivalence for the same source and toolchain. This is the strongest provenance claim
+  honestly available for this specific conversion: source integrity is exactly verified, tool
+  identity is verified-compatible rather than verified-identical.
 
 ## Decision
 
