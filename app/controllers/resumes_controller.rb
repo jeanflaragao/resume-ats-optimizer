@@ -29,7 +29,10 @@ class ResumesController < ApplicationController
     enforce_quota!(:resume_extraction)
 
     resume = Resume::Import.call(file: params[:file], strategy: DEFAULT_STRATEGY)
-    resume.update!(owner_token: current_owner_token)
+    # last_accessed_at starts the issue #59 retention clock immediately, rather
+    # than leaving it nil (which would read as the never-claimed/orphan case)
+    # until the user's first subsequent visit.
+    resume.update!(owner_token: current_owner_token, last_accessed_at: Time.current)
 
     redirect_to resume_path(resume)
   rescue ActiveRecord::RecordInvalid, Resume::Import::UnsupportedFormatError => e

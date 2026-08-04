@@ -92,9 +92,24 @@ class ApplicationController < ActionController::Base
   end
 
   # Shared owner-scoped lookup for any controller acting on a Resume
-  # (ResumesController#show, JobDescriptionsController#create).
+  # (ResumesController#show, JobDescriptionsController#create,
+  # PreviewsController#create, DownloadsController#create/#ready/#show).
+  #
+  # Also the single choke point for Resume::LAST_ACCESSED_PURGE_AFTER (issue
+  # #59): every read path routes through here, so bumping last_accessed_at
+  # once at this call site covers all of them rather than each controller
+  # remembering to do it.
+  #
+  # update_column, not update!/touch: Resume::CachedOptimization's cache key
+  # is derived from cache_key_with_version, which is derived from updated_at.
+  # Touching updated_at here would invalidate the optimization cache on every
+  # page view/preview/download click, defeating ADR-0021 (one preview-then-
+  # download pays for one bullet-rewrite fan-out, not two). update_column
+  # skips both validations and the updated_at touch.
   def find_owned_resume!(id)
-    Resume.find_by!(id: id, owner_token: current_owner_token)
+    Resume.find_by!(id: id, owner_token: current_owner_token).tap do |resume|
+      resume.update_column(:last_accessed_at, Time.current)
+    end
   end
 
   # Issue #22. Charges one use of `action` to this session and raises

@@ -230,6 +230,37 @@ class ResumeUploadsTest < ActionDispatch::IntegrationTest
     File.delete(path) if path && File.exist?(path)
   end
 
+  test "uploading a valid file sets last_accessed_at" do
+    path = write_fixture({ note: "Stub Candidate, stub@example.com" }.to_json)
+    post resumes_path, params: { file: Rack::Test::UploadedFile.new(path, "application/json") }
+
+    assert_not_nil Resume.last.last_accessed_at
+  ensure
+    File.delete(path) if path && File.exist?(path)
+  end
+
+  # Issue #59: find_owned_resume! (the shared lookup #show routes through)
+  # must bump last_accessed_at so Resume.purge_stale! knows the resume is
+  # still in use -- but must not touch updated_at, or every view would
+  # invalidate Resume::CachedOptimization's cache (ADR-0021, ADR-0026).
+  test "viewing a resume bumps last_accessed_at without touching updated_at" do
+    path = write_fixture({ note: "Stub Candidate, stub@example.com" }.to_json)
+    post resumes_path, params: { file: Rack::Test::UploadedFile.new(path, "application/json") }
+    resume = Resume.last
+    original_updated_at = resume.updated_at
+    original_last_accessed_at = resume.last_accessed_at
+
+    travel 1.hour do
+      get resume_path(resume)
+    end
+
+    resume.reload
+    assert_operator resume.last_accessed_at, :>, original_last_accessed_at
+    assert_equal original_updated_at, resume.updated_at
+  ensure
+    File.delete(path) if path && File.exist?(path)
+  end
+
   private
 
   def write_fixture(content)

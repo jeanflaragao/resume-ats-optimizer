@@ -26,6 +26,14 @@ class RecurringConfigTest < ActiveSupport::TestCase
     assert_respond_to Usage::Counter, :purge_stale!
   end
 
+  test "the resume purge is scheduled and its job class resolves" do
+    task = @production[:purge_stale_resumes]
+
+    assert_not_nil task, "purge_stale_resumes is missing from config/recurring.yml"
+    assert_equal "Resume::PurgeStaleJob", task[:class]
+    assert_operator Resume::PurgeStaleJob, :<=, ActiveJob::Base
+  end
+
   test "every recurring schedule parses" do
     @production.each do |name, task|
       assert_not_nil Fugit.parse(task[:schedule]), "#{name} has an unparseable schedule: #{task[:schedule]}"
@@ -37,7 +45,10 @@ class RecurringConfigTest < ActiveSupport::TestCase
   test "each purge runs more often than the retention window it enforces" do
     {
       purge_stale_pdf_requests: Resume::PdfRequest::PURGE_AFTER,
-      purge_stale_usage_counters: Usage::Counter::RETAIN_FOR
+      purge_stale_usage_counters: Usage::Counter::RETAIN_FOR,
+      # The shorter of Resume's two windows -- the schedule must outrun both,
+      # so it only needs checking against whichever one is tighter.
+      purge_stale_resumes: Resume::ORPHAN_PURGE_AFTER
     }.each do |task, window|
       cron = Fugit.parse(@production[task][:schedule])
       first = cron.next_time(Time.current)
