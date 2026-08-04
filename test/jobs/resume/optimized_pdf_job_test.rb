@@ -57,13 +57,15 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     Resume::Optimization.define_singleton_method(:call, original_call)
   end
 
-  # The log line is the regression risk here, not the raise: emitting "U+5F35"
-  # looks harmless next to emitting the name itself, but for a CJK name the
-  # codepoints ARE the name (ADR-0015). Assert on both what it must say and
-  # what it must never say.
+  # The log line is the regression risk here, not the raise: emitting "U+1F680"
+  # looks harmless next to emitting the name itself, but for a script whose
+  # codepoints double as the content, that's the same leak (ADR-0015). Uses
+  # emoji, not CJK (issue #81, ADR-0024 -- CJK renders now, so it no longer
+  # reaches this rescue clause). Assert on both what it must say and what it
+  # must never say.
   test "an unrenderable script logs the Unicode block and count, never the characters or codepoints" do
     resume = resumes(:one)
-    resume.update!(name: "張偉")
+    resume.update!(name: "Rocket 🚀")
     download_id = SecureRandom.uuid
 
     original_logger = Rails.logger
@@ -75,19 +77,18 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     end
 
     log_output = io.string
-    assert_includes log_output, "CJK Unified Ideographs"
-    assert_includes log_output, "2 characters"
-    assert_not_includes log_output, "張"
-    assert_not_includes log_output, "偉"
+    assert_includes log_output, "Emoji and Pictographs"
+    assert_includes log_output, "1 characters"
+    assert_not_includes log_output, "🚀"
     assert_not_includes log_output, "U+"
-    assert_not_includes log_output, "5F35"
+    assert_not_includes log_output, "1F680"
   ensure
     Rails.logger = original_logger
   end
 
-  test "an unrenderable script tells the user which script is unsupported and not to retry" do
+  test "a missing-glyph refusal tells the user which script is unsupported and not to retry" do
     resume = resumes(:one)
-    resume.update!(name: "張偉")
+    resume.update!(name: "Rocket 🚀")
     download_id = SecureRandom.uuid
 
     broadcasts = capture_turbo_stream_broadcasts "download_#{download_id}" do
@@ -97,9 +98,33 @@ class Resume::OptimizedPdfJobTest < ActiveJob::TestCase
     end
 
     message = broadcasts.first.to_s
-    assert_includes message, "Chinese, Japanese, or Korean characters"
+    assert_includes message, "emoji"
+    assert_includes message, "doesn't support yet"
     assert_includes message, "Retrying will not help"
-    assert_not_includes message, "張"
+    assert_not_includes message, "🚀"
+  end
+
+  # ADR-0024: a shaping-required refusal (glyphs exist, Prawn can't shape them
+  # correctly) must read as a different fact from a missing-glyph refusal
+  # ("we don't have this yet" vs. "we have this and won't draw it wrong") --
+  # tested here, at the job level, where the phrasing a candidate actually
+  # sees lives.
+  test "a shaping-required refusal tells the user it needs complex text layout, not that it's simply unsupported" do
+    resume = resumes(:one)
+    resume.update!(name: "שלום")
+    download_id = SecureRandom.uuid
+
+    broadcasts = capture_turbo_stream_broadcasts "download_#{download_id}" do
+      assert_raises(Resume::Pdf::UnrenderableCharacterError) do
+        perform_download(resume, download_id)
+      end
+    end
+
+    message = broadcasts.first.to_s
+    assert_includes message, "Hebrew characters"
+    assert_includes message, "right-to-left"
+    assert_not_includes message, "doesn't support yet"
+    assert_not_includes message, "שלום"
   end
 
   # Without this the failure is only ever broadcast, and a broadcast lost to

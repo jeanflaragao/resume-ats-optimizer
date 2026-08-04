@@ -244,11 +244,21 @@ Otherwise standard Rails 8 conventions.
   Duck-typed against `resume` (no `ActiveRecord`-specific calls), which lets
   `Resume::Optimization` below feed it a non-persisted value object unchanged. Renders in embedded
   Liberation Sans (metric-compatible with Helvetica, so the layout is unchanged) with DejaVu Sans
-  as a glyph fallback. Prawn draws a missing glyph as an invisible `.notdef` rather than raising,
-  so a pre-render guard raises `Resume::Pdf::UnrenderableCharacterError` for any script no embedded
-  font covers (CJK, Hebrew, Arabic, Devanagari, emoji) instead of shipping a blank name line — see
-  ADR-0018. The error carries a Unicode block name and a count, never the characters or codepoints
-  (ADR-0015: for a CJK name the codepoints *are* the name).
+  and Noto Sans CJK (Simplified Chinese, converted from the official CFF release to TrueType
+  outlines — Prawn/TTFunk's Type0 embedding cannot handle CFF-flavored OpenType, ADR-0024) as
+  glyph fallbacks. Prawn draws a missing glyph as an invisible `.notdef` rather than raising, so
+  `Resume::Pdf.guard_renderable!(resume:)` — a public class method, not just a pre-render
+  instance check, so `DownloadsController` can call it before `Resume::Pdf.call` does — raises
+  `Resume::Pdf::UnrenderableCharacterError` for any character no embedded font covers, *and*
+  refuses Hebrew, Arabic, and Devanagari outright regardless of glyph coverage: Prawn's flow
+  layout has no bidi reordering or contextual letter joining, so those three render fluently
+  wrong rather than raise (ADR-0024 generalizes ADR-0018's "do not transliterate" into "do not
+  deform"; real support is issue #103). The error distinguishes `missing_glyph_blocks` from
+  `shaping_required_blocks` and carries a Unicode block name and a count, never the characters or
+  codepoints (ADR-0015: for a CJK name the codepoints *are* the name); `#user_message` builds the
+  user-facing wording once, shared by `DownloadsController` and the job below. Font cmaps resolve
+  lazily, in `FONT_FAMILIES` order, cached at the class level rather than per-render — an
+  all-ASCII resume never opens the ~19MB CJK font (ADR-0025).
 - **`app/services/resume/optimization.rb`**: `Resume::Optimization.call(resume:,
   job_description_text:, chat: LlmCallGuard.chat)` bridges `BulletRewriter` and `Resume::Pdf` —
   runs `BulletRewriter` once per experience, returns a `Resume::Optimization::Result`
@@ -335,7 +345,15 @@ Otherwise standard Rails 8 conventions.
   HTML template (not an embedded PDF) mirroring `Resume::Pdf`'s layout. Synchronous, no Solid
   Queue.
 - **`app/jobs/resume/optimized_pdf_job.rb`** + **`app/controllers/downloads_controller.rb`**:
-  `create` validates `job_description_text` (same length bound), writes it to an encrypted
+  `create` validates `job_description_text` (same length bound), then calls
+  `Resume::Pdf.guard_renderable!(resume: @resume)` against the pre-rewrite record — before
+  `enforce_quota!`, so a Hebrew/Arabic/Devanagari name or an uncovered script is refused for free
+  rather than charged a `pdf_generation` slot for a refusal that was already knowable (ADR-0025).
+  This is ordering, not a refund: `Usage::Quota` still never refunds a spent slot, and the job's
+  own `guard_renderable!` call (inside `Resume::Pdf.call`) remains as a backstop for the one case
+  the controller can't see — a bullet rewrite introducing a new unrenderable character, which
+  still costs the slot it's refused on because it genuinely can't be known any earlier. Otherwise
+  writes `job_description_text` to an encrypted
   `Resume::PdfRequest`, enqueues `Resume::OptimizedPdfJob.perform_later(resume_id:,
   pdf_request_id:, download_id:)` — **the text itself is never a job argument** (issue #76,
   ADR-0022) — and renders a status page subscribed via

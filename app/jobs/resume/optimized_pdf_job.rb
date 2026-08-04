@@ -33,23 +33,6 @@ class Resume::OptimizedPdfJob < ApplicationJob
   BUDGET_UNAVAILABLE_MESSAGE = "We can't generate PDFs right now. Your resume is saved — " \
                                "please try downloading it again in a few minutes.".freeze
 
-  # Maps Resume::Pdf's log-safe Unicode block names onto phrasing a candidate
-  # would recognise. Names the script that isn't supported without echoing any
-  # of the user's own text back into the page.
-  UNSUPPORTED_SCRIPT_LABELS = {
-    "CJK Unified Ideographs" => "Chinese, Japanese, or Korean characters",
-    "CJK Unified Ideographs Extension A" => "Chinese, Japanese, or Korean characters",
-    "Hiragana" => "Japanese characters",
-    "Katakana" => "Japanese characters",
-    "Hangul Syllables" => "Korean characters",
-    "Hebrew" => "Hebrew characters",
-    "Arabic" => "Arabic characters",
-    "Devanagari" => "Devanagari characters",
-    "Emoji and Pictographs" => "emoji",
-    "Miscellaneous Symbols" => "symbols",
-    "Arrows" => "symbols"
-  }.freeze
-
   EXPIRED_REQUEST_MESSAGE = "This download request expired before we could start on it. " \
                             "Please generate a new one — your resume is saved.".freeze
 
@@ -91,7 +74,7 @@ class Resume::OptimizedPdfJob < ApplicationJob
     # is constructed by Resume::Pdf and carries only a Unicode block name and a
     # count, never the offending characters or their codepoints (ADR-0015).
     Rails.logger.error("Resume::OptimizedPdfJob failed for resume #{resume_id}: #{e.class} (#{e.message})")
-    record_failure(resume_id, download_id, unsupported_script_message(e))
+    record_failure(resume_id, download_id, e.user_message)
     raise
   rescue LlmCallGuard::DailyLimitExceededError => e
     # Named rather than left to the blanket clause below, because the generic
@@ -153,13 +136,5 @@ class Resume::OptimizedPdfJob < ApplicationJob
       partial: "downloads/failed",
       locals: { message: message }
     )
-  end
-
-  def unsupported_script_message(error)
-    subjects = error.blocks.filter_map { |block| UNSUPPORTED_SCRIPT_LABELS[block] }.uniq
-
-    "We can't generate a PDF for this resume yet — it contains " \
-    "#{subjects.presence&.to_sentence || 'characters'} that our PDF template doesn't support. " \
-    "The preview on screen shows them correctly. Retrying will not help; support for this is being tracked."
   end
 end
