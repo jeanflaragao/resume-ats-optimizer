@@ -33,3 +33,4 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0023 | Per-session usage quotas in Postgres, alongside (not instead of) the global LLM cap | Accepted | [0023-per-session-usage-quotas-in-postgres.md](0023-per-session-usage-quotas-in-postgres.md) |
 | 0024 | Add a CJK fallback font, and refuse scripts requiring text shaping even when glyphs exist | Accepted | [0024-refuse-scripts-requiring-shaping.md](0024-refuse-scripts-requiring-shaping.md) |
 | 0025 | Check PDF renderability before spending quota, and resolve fallback fonts lazily | Accepted | [0025-check-renderability-before-spending-quota.md](0025-check-renderability-before-spending-quota.md) |
+| 0026 | Purge stale resumes with owner-scoped retention | Accepted | [0026-purge-stale-resumes.md](0026-purge-stale-resumes.md) |

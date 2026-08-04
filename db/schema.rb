@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_03_180000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_04_220330) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -54,6 +54,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_03_180000) do
   create_table "resumes", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "email"
+    t.datetime "last_accessed_at"
     t.string "name"
     t.string "owner_token"
     t.string "phone"
@@ -61,6 +62,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_03_180000) do
     t.string "source"
     t.text "summary"
     t.datetime "updated_at", null: false
+    t.index ["created_at"], name: "index_resumes_on_created_at", where: "(owner_token IS NULL)"
+    t.index ["last_accessed_at"], name: "index_resumes_on_last_accessed_at", where: "(owner_token IS NOT NULL)"
     t.index ["owner_token"], name: "index_resumes_on_owner_token"
   end
 

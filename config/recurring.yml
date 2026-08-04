@@ -40,3 +40,14 @@ production:
   purge_stale_usage_counters:
     command: "Usage::Counter.purge_stale!"
     schedule: every day at 3:17am
+
+  # Issue #59. Retains actual PII (name, email, phone, work history), unlike
+  # the two purges above -- see ADR-0026. Hourly rather than every-5-minutes
+  # (purge_stale_pdf_requests) or daily (purge_stale_usage_counters): the
+  # shortest window enforced here is Resume::ORPHAN_PURGE_AFTER at 24 hours, so
+  # hourly keeps the schedule-vs-window error term small (~1 hour of drift on a
+  # 24-hour promise) without being wastefully frequent for data that isn't
+  # time-critical the way #76's plaintext-job-description leak was.
+  purge_stale_resumes:
+    command: "Resume.purge_stale!"
+    schedule: every hour
