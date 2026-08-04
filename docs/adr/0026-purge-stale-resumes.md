@@ -11,15 +11,53 @@ description* to 15 minutes on privacy grounds. It left this sitting next to it: 
 candidate's own identity and career history, arguably more sensitive than the posting they
 were applying against, had no retention bound at all. Issue #59 closes that inconsistency.
 
-### The retention rule as specified could not be built as specified
+### Departure from issue #59's own proposal — recorded explicitly, not resolved silently
 
-The issue asked for two tiers: a claimed resume (`owner_token` present) purged 7 days after
-its *last access*, and an orphaned resume (`owner_token` that "no longer resolves to any live
-session") purged after 24 hours.
+Issue #59 proposes a single `RETENTION_PERIOD` (it recommends 30 days) purged from
+`updated_at`, with no `owner_token` distinction, and is explicit that the window is a product
+decision: *"if 30 days looks wrong for this product, propose a different number and stop — do
+not pick one silently."* What was actually built here is a two-tier scheme — 7 days from
+*last access* for a claimed resume, 24 hours from *creation* for a never-claimed one — which
+is a different shape, not just a different number. Recorded here rather than silently
+substituted, per this repo's own rule that the issue body is the source of truth and a
+conflicting prompt may be based on stale context.
 
-The second tier assumes a session registry to check liveness against. There isn't one.
-`current_owner_token` (`ApplicationController#current_owner_token`) is
-`session[:owner_token] ||= SecureRandom.hex(32)` — Rails' default cookie session store. No
+Two things drove the divergence:
+
+1. **`updated_at` doesn't mean what the issue's design needs it to mean.** Nothing in this
+   codebase touches a `Resume`'s own columns after creation — `Experience`/`Education` children
+   can change without their parent's `updated_at` moving (no `touch: true` on those
+   associations), and no controller action re-saves the resume itself on a read. So `updated_at`
+   is, for practically every row, indistinguishable from `created_at`. Purging from it is not
+   "purge what nobody's using" — it's a flat TTL from upload, full stop. Implementing genuine
+   *last-access* retention — the thing that stops an active user from losing their resume on
+   day 7 because they revisit every few days without re-uploading — requires a column that is
+   deliberately bumped on read, which `updated_at` is not, by design, anywhere else in this app.
+2. **Bumping `updated_at` on every read would have been actively wrong**, independent of which
+   retention numbers get chosen. `Resume::CachedOptimization` keys its cache on a digest of
+   `cache_key_with_version`, itself derived from `updated_at` (ADR-0021). Making `updated_at`
+   double as a last-access marker would invalidate the optimization cache on every page view,
+   preview, or download click — silently forcing a fresh, cost-bearing LLM re-run on each one.
+   This is the load-bearing reason a separate `last_accessed_at` column exists at all, regardless
+   of whether the retention window ends up being 30 days flat or something else — see the
+   `update_column` note below.
+
+The 7-day/24-hour numbers themselves are a genuine departure from the issue's 30-day
+recommendation, made deliberately rather than defaulted into: once a real last-access column
+exists, an active user is never at risk of losing a resume just from the clock running out — so
+a shorter window costs an active user nothing, while bounding a genuinely abandoned resume's
+retention more tightly than the issue's original number would. If that reasoning is wrong for
+this product, it is a product call to revisit, not an implementation detail — flagged here so
+it's revisitable rather than buried.
+
+### The orphan tier as specified could not be built as specified
+
+Separately from the numbers, the *task instructions* driving this implementation asked for a
+second tier beyond what issue #59 itself describes: an orphaned resume, defined as one whose
+`owner_token` "no longer resolves to any live session." That definition assumes a session
+registry to check liveness against. There isn't one. `current_owner_token`
+(`ApplicationController#current_owner_token`) is `session[:owner_token] ||=
+SecureRandom.hex(32)` — Rails' default cookie session store. No
 `config/initializers/session_store.rb` overrides it, no session-store gem beyond the default
 `rack-session` is in `Gemfile.lock`, and `db/schema.rb` has five tables total — none of them
 `sessions`. A cookie-store session lives entirely in the browser; the server never records
@@ -60,6 +98,16 @@ preview, or download click would invalidate the optimization cache — silently 
 cost problem ADR-0021 closed (one preview-then-download paying for one bullet-rewrite fan-out,
 not two). `update_column` skips both validations and the `updated_at` touch, keeping access
 bookkeeping fully separate from content-change tracking.
+
+**`Resume::PurgeStaleJob` wraps `Resume.purge_stale!`, aligning with the issue's own proposed
+mechanism.** The issue asks for a job (not a bare `command:` entry) specifically so the
+destroyed-record count can be logged — an explicit acceptance criterion, and real operational
+value: without it there is no way to tell from the logs whether the purge ran at all, let alone
+whether it over- or under-deleted. `Resume.purge_stale!` itself stays a plain class method
+returning `{ claimed:, orphan: }` counts, matching the shape of its siblings
+`Resume::PdfRequest.purge_stale!` / `Usage::Counter.purge_stale!`; the job is a thin wrapper
+that calls it and logs the result, scheduled via a `class:` entry in `config/recurring.yml`
+rather than those two's `command:` entries.
 
 **`Resume.purge_stale!` uses `in_batches.destroy_all`, not a bare `destroy_all`, and not
 `delete_all`.** Two independent reasons, not one:

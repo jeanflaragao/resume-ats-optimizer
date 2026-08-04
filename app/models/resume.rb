@@ -21,22 +21,30 @@ class Resume < ApplicationRecord
   # no "last access" to measure from; ORPHAN_PURGE_AFTER runs from created_at.
   ORPHAN_PURGE_AFTER = 24.hours
 
-  # Called from config/recurring.yml. in_batches.destroy_all rather than a bare
-  # destroy_all: unlike Resume::PdfRequest (which stays near-zero because a
-  # successful download deletes its own row), resumes accumulate for the full
-  # width of LAST_ACCESSED_PURGE_AFTER, so the stale set can be large enough
-  # that loading it into memory in one shot is the wrong default. Still
+  # Called from Resume::PurgeStaleJob. in_batches.destroy_all rather than a
+  # bare destroy_all: unlike Resume::PdfRequest (which stays near-zero because
+  # a successful download deletes its own row), resumes accumulate for the
+  # full width of LAST_ACCESSED_PURGE_AFTER, so the stale set can be large
+  # enough that loading it into memory in one shot is the wrong default. Still
   # destroy_all underneath, not delete_all: experiences/educations have no
   # ON DELETE CASCADE at the DB level (unlike resume_pdf_requests), so a raw
   # delete would raise a foreign-key violation on the first stale resume with
   # any children. destroy_all runs dependent: :destroy per batch instead.
+  #
+  # Returns { claimed:, orphan: } counts so the job can log them -- without
+  # this, there's no way to tell from the logs whether the purge ran at all,
+  # let alone whether it over- or under-deleted (issue #59's acceptance
+  # criterion). Each scope's count is read before destroying it, since
+  # in_batches.destroy_all itself returns the batch enumerator, not a count.
   def self.purge_stale!
-    where.not(owner_token: nil)
-      .where(last_accessed_at: ...LAST_ACCESSED_PURGE_AFTER.ago)
-      .in_batches.destroy_all
+    claimed = where.not(owner_token: nil).where(last_accessed_at: ...LAST_ACCESSED_PURGE_AFTER.ago)
+    claimed_count = claimed.count
+    claimed.in_batches.destroy_all
 
-    where(owner_token: nil)
-      .where(created_at: ...ORPHAN_PURGE_AFTER.ago)
-      .in_batches.destroy_all
+    orphaned = where(owner_token: nil).where(created_at: ...ORPHAN_PURGE_AFTER.ago)
+    orphaned_count = orphaned.count
+    orphaned.in_batches.destroy_all
+
+    { claimed: claimed_count, orphan: orphaned_count }
   end
 end

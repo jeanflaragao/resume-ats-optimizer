@@ -191,11 +191,24 @@ root `Dockerfile` via Kamal, but `config/deploy.yml` doesn't actually exist yet 
 Otherwise standard Rails 8 conventions.
 
 - **`app/models`**: `Resume` (`name`/`email`/`phone` nullable, `summary:text`, `skills:jsonb`)
-  `has_many :experiences`/`:educations`, ordered by `position:integer`, `dependent: :destroy`.
+  `has_many :experiences`/`:educations`/`:pdf_requests`, `dependent: :destroy` on all three.
   `Experience` (`company`/`title` required, `bullets:jsonb`) and `Education` (`school` required)
   `belongs_to :resume`. `Resume.owner_token` (nullable, indexed) is a placeholder for a real
   `user_id` FK once auth lands — populated from `current_owner_token`, enforced only at the
-  controller layer. `Resume::PdfRequest` (`resume_pdf_requests`: `download_id:uuid` unique,
+  controller layer. `Resume.last_accessed_at` (issue #59) is bumped by
+  `ApplicationController#find_owned_resume!` — the single lookup every owner-scoped read routes
+  through — with `update_column`, deliberately not `update!`/`touch`: touching `updated_at` here
+  would invalidate `Resume::CachedOptimization`'s cache key on every view (ADR-0021, ADR-0026).
+  `Resume.purge_stale!` deletes (`in_batches.destroy_all`, so `dependent: :destroy` cascades to
+  experiences/educations/pdf_requests, which have no `ON DELETE CASCADE` at the DB level) a
+  claimed resume (`owner_token` present) `LAST_ACCESSED_PURGE_AFTER` (7 days) after its last
+  access, and a never-claimed one (`owner_token` nil — the only population actually,
+  permanently unreachable, since nothing ever sets that column a second time)
+  `ORPHAN_PURGE_AFTER` (24 hours) after creation. Returns `{ claimed:, orphan: }` counts;
+  `Resume::PurgeStaleJob` (`app/jobs/resume/`) calls it and logs them, scheduled from
+  `config/recurring.yml`. ADR-0026 has the retention-window reasoning, including why it departs
+  from issue #59's own 30-day/`updated_at` proposal.
+  `Resume::PdfRequest` (`resume_pdf_requests`: `download_id:uuid` unique,
   `text` **Active-Record-encrypted, non-deterministic**, `created_at` only) holds a download's
   pasted job description so it does *not* travel as an Active Job argument — Solid Queue
   serializes those into a plaintext column that nothing clears for a failed job (issue #76,
@@ -374,10 +387,12 @@ Otherwise standard Rails 8 conventions.
   `send_data`-ing the bytes. `test/system/resume_downloads_test.rb` is the repo's first system
   test, and what caught the ADR-0010/ADR-0014 Turbo Drive gap.
 - **`config/recurring.yml`**: production-only Solid Queue schedule — clears finished Solid Queue
-  jobs hourly, runs `Resume::PdfRequest.purge_stale!` every 5 minutes, and
+  jobs hourly, runs `Resume::PdfRequest.purge_stale!` every 5 minutes,
   `Usage::Counter.purge_stale!` daily (nothing here is time-critical: no user content, and
-  `RETAIN_FOR` leaves six days of slack over the one-day period it enforces). Nothing runs this in
-  dev/test (and nothing runs it in production yet either — issue #48), so
+  `RETAIN_FOR` leaves six days of slack over the one-day period it enforces), and
+  `Resume::PurgeStaleJob` hourly (issue #59, ADR-0026) — a `class:` entry rather than the other
+  two's `command:`, since the job logs the destroyed-record counts `Resume.purge_stale!` returns.
+  Nothing runs this in dev/test (and nothing runs it in production yet either — issue #48), so
   `test/config/recurring_test.rb` asserts the entries resolve and that each purge interval stays
   under the window it enforces instead.
 - **Active Record Encryption**: keys live in `config/credentials.yml.enc`. `config/environments/

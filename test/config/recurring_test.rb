@@ -26,12 +26,12 @@ class RecurringConfigTest < ActiveSupport::TestCase
     assert_respond_to Usage::Counter, :purge_stale!
   end
 
-  test "the resume purge is scheduled and its command resolves" do
+  test "the resume purge is scheduled and its job class resolves" do
     task = @production[:purge_stale_resumes]
 
     assert_not_nil task, "purge_stale_resumes is missing from config/recurring.yml"
-    assert_equal "Resume.purge_stale!", task[:command]
-    assert_respond_to Resume, :purge_stale!
+    assert_equal "Resume::PurgeStaleJob", task[:class]
+    assert_operator Resume::PurgeStaleJob, :<=, ActiveJob::Base
   end
 
   test "every recurring schedule parses" do
