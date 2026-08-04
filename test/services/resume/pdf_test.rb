@@ -106,11 +106,27 @@ class Resume::PdfTest < ActiveSupport::TestCase
   }.freeze
 
   # No font we ship covers these. They must raise a named error rather than
-  # render as blank .notdef glyphs -- see the guard test below for why.
+  # render as blank .notdef glyphs -- see the guard test below for why. CJK
+  # used to be here too (issue #81) -- ADR-0024's Noto Sans CJK fallback moved
+  # it to CJK_NOW_RENDERS below.
   UNSUPPORTED_SCRIPTS = {
-    "CJK" => "張偉",
     "emoji" => "Shipped 🚀 to prod"
   }.freeze
+
+  # Full glyph coverage in DejaVu Sans (Hebrew) or genuinely no coverage
+  # anywhere (Devanagari) -- refused anyway, because Prawn's flow layout does
+  # no bidi reordering or contextual letter joining. ADR-0024. Non-vacuity:
+  # before that ADR's SHAPING_REQUIRED_BLOCKS existed, Hebrew and Arabic both
+  # passed this guard and rendered silently wrong -- confirmed by running
+  # these two cases against the pre-fix code (see the PR body for the
+  # captured failure output).
+  SHAPING_REFUSED = {
+    "Hebrew" => "שלום",
+    "Arabic" => "مرحبا",
+    "Devanagari" => "राम"
+  }.freeze
+
+  CJK_NOW_RENDERS = { "CJK" => "張偉" }.freeze
 
   (ALREADY_RENDERED.merge(PREVIOUSLY_CRASHED)).each do |label, string|
     test "renders #{label} and extracts it back verbatim" do
@@ -130,43 +146,112 @@ class Resume::PdfTest < ActiveSupport::TestCase
     test "raises rather than silently rendering blanks for #{label}" do
       resume = Resume.new(name: "Alex Doe", summary: string)
 
-      assert_raises(Resume::Pdf::UnrenderableCharacterError) do
+      error = assert_raises(Resume::Pdf::UnrenderableCharacterError) do
         Resume::Pdf.call(resume: resume)
+      end
+
+      assert_includes error.missing_glyph_blocks, "Emoji and Pictographs"
+      assert_empty error.shaping_required_blocks
+    end
+  end
+
+  SHAPING_REFUSED.each do |block, string|
+    test "refuses #{block} even though it has no missing-glyph coverage gap for the parts that do" do
+      resume = Resume.new(name: "Alex Doe", summary: string)
+
+      error = assert_raises(Resume::Pdf::UnrenderableCharacterError) do
+        Resume::Pdf.call(resume: resume)
+      end
+
+      assert_includes error.shaping_required_blocks, block
+      assert_not_includes error.missing_glyph_blocks, block
+      assert_match(/requires? text shaping/, error.message)
+    end
+  end
+
+  # Issue #81: adding a font is not enough to prove a name renders -- Prawn
+  # extracts text via the ToUnicode CMap even for a glyph it drew as an
+  # invisible .notdef, so extraction succeeding is not proof of visible
+  # rendering. Check glyph presence directly against the vendored font file,
+  # not just that Resume::Pdf.call doesn't raise and extraction round-trips.
+  CJK_NOW_RENDERS.each do |label, string|
+    test "renders #{label} instead of refusing it, now that a CJK font is embedded" do
+      resume = Resume.new(name: "Alex Doe", summary: string)
+
+      assert_extracts string, from: Resume::Pdf.call(resume: resume)
+    end
+
+    test "the vendored CJK font actually has glyphs for #{label}, not just a declared cmap entry" do
+      cmap = TTFunk::File.open(Resume::Pdf::FONT_FAMILIES[Resume::Pdf::CJK_FONT][:normal]).cmap.unicode.first
+
+      string.each_char do |char|
+        assert (cmap[char.ord] || 0) != 0, "expected #{Resume::Pdf::CJK_FONT} to cover U+#{char.ord.to_s(16).upcase}"
       end
     end
   end
 
   # A missing glyph does NOT raise in Prawn -- it renders .notdef (nothing
   # visible) while the ToUnicode CMap still extracts the original text. So a
-  # CJK resume would download "successfully" with a blank name line and parse
-  # cleanly in an ATS. Silently shipping that is worse than failing, which is
-  # why the guard exists at all; this test pins the behaviour it prevents.
+  # resume with an uncovered script would download "successfully" with a
+  # blank line and parse cleanly in an ATS. Silently shipping that is worse
+  # than failing, which is why the guard exists at all; this test pins the
+  # behaviour it prevents. Uses emoji, not CJK, now that CJK is covered.
   test "the guard fires instead of producing a PDF whose text extracts but does not display" do
-    resume = Resume.new(name: "Alex Doe", summary: "張偉")
+    resume = Resume.new(name: "Alex Doe", summary: "Shipped 🚀 to prod")
 
     error = assert_raises(Resume::Pdf::UnrenderableCharacterError) do
       Resume::Pdf.call(resume: resume)
     end
 
-    assert_match(/CJK/, error.message)
-    assert_match(/\b2\b/, error.message)
+    assert_match(/Emoji/, error.message)
+    assert_match(/\b1\b/, error.message)
   end
 
   # ADR-0015: for a CJK name the codepoints ARE the name, so logging "U+5F35"
   # leaks exactly what logging the string would. The error message is written
-  # to the log by Resume::OptimizedPdfJob, so it must carry the Unicode block
-  # name and a count and nothing else.
+  # to the log by Resume::OptimizedPdfJob and DownloadsController, so it must
+  # carry the Unicode block name and a count and nothing else -- true for
+  # both refusal reasons, not just the missing-glyph one.
   test "the unrenderable-character error names the Unicode block without leaking the characters" do
-    resume = Resume.new(name: "Alex Doe", summary: "張偉")
+    resume = Resume.new(name: "Alex Doe", summary: "Shipped 🚀 to prod")
 
     error = assert_raises(Resume::Pdf::UnrenderableCharacterError) do
       Resume::Pdf.call(resume: resume)
     end
 
-    assert_not_includes error.message, "張"
-    assert_not_includes error.message, "偉"
-    assert_not_includes error.message, "5F35"
+    assert_not_includes error.message, "🚀"
+    assert_not_includes error.message, "1F680"
     assert_not_includes error.message, "U+"
+  end
+
+  test "a shaping-required refusal names the Unicode block without leaking the characters" do
+    resume = Resume.new(name: "Alex Doe", summary: "שלום")
+
+    error = assert_raises(Resume::Pdf::UnrenderableCharacterError) do
+      Resume::Pdf.call(resume: resume)
+    end
+
+    assert_not_includes error.message, "שלום"
+    assert_not_includes error.message, "U+"
+  end
+
+  # ADR-0025: font_cmaps resolves lazily, in FONT_FAMILIES declaration order,
+  # cached at the class level. An all-ASCII resume must never open the ~19MB
+  # CJK font -- confirmed regression risk, not hypothetical (see ADR-0025's
+  # benchmark table). Reset the class-level cache first: other tests in this
+  # process may already have opened the CJK font, which would make this test
+  # pass for the wrong reason.
+  test "an all-ASCII resume never opens the CJK fallback font" do
+    Resume::Pdf.instance_variable_set(:@cmaps, {})
+    resume = Resume.new(name: "Alex Doe", email: "alex@example.com", summary: "Plain ASCII summary.")
+
+    Resume::Pdf.call(resume: resume)
+
+    opened_paths = Resume::Pdf.instance_variable_get(:@cmaps).keys
+    assert opened_paths.any? { |path| path.include?("LiberationSans") }
+    assert_not opened_paths.any? { |path| path.include?("NotoSansCJK") }
+  ensure
+    Resume::Pdf.instance_variable_set(:@cmaps, {})
   end
 
   # ADR-0004 chose this template for ATS-friendliness, and text extraction is

@@ -85,6 +85,32 @@ class UsageQuotaTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "daily limit for PDF downloads"
   end
 
+  # ADR-0025: Resume::Pdf.guard_renderable! runs before enforce_quota! in
+  # DownloadsController#create, so a resume the PDF renderer will refuse
+  # never spends the requester's pdf_generation quota on that refusal --
+  # distinct from every other job failure, which does spend it
+  # (Usage::Quota.consume!'s "nothing is refunded" comment), because this
+  # refusal is knowable before any work starts, not discovered partway
+  # through it.
+  #
+  # Non-vacuity: run against the pre-ADR-0025 controller (guard check absent,
+  # enforce_quota! running unconditionally) and confirmed this request DID
+  # consume a pdf_generation slot -- see the PR body for the captured output.
+  test "a resume with an unrenderable name is refused without enqueuing a job or spending pdf_generation quota" do
+    resume = upload_resume
+    resume.update!(name: "שלום")
+
+    assert_no_enqueued_jobs only: Resume::OptimizedPdfJob do
+      assert_no_difference -> { Resume::PdfRequest.count } do
+        post resume_downloads_path(resume), params: { job_description_text: "We need a Ruby engineer." }
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes response.body, "right-to-left"
+    assert_nil Usage::Counter.find_by(subject_token: session[:owner_token], action_type: "pdf_generation")
+  end
+
   # The cheap rejections come first, so a request that never had a chance to
   # cost anything must not cost a slot either. Without this ordering a user
   # could be locked out for the day by pasting an over-long posting repeatedly

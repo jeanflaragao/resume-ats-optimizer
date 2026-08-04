@@ -38,6 +38,7 @@ class DownloadsController < ApplicationController
   def create
     @resume = find_owned_resume!(params[:resume_id])
     job_description_text = params[:job_description_text].to_s
+    unrenderable_error = renderability_error
 
     if job_description_text.blank?
       flash.now[:alert] = "Please paste a job description first."
@@ -45,6 +46,18 @@ class DownloadsController < ApplicationController
       status = :unprocessable_entity
     elsif job_description_text.length > MAX_JOB_DESCRIPTION_LENGTH
       flash.now[:alert] = "That job description is too long (maximum #{MAX_JOB_DESCRIPTION_LENGTH} characters). Please shorten it and try again."
+      template = "resumes/show"
+      status = :unprocessable_entity
+    elsif unrenderable_error
+      # Checked before enforce_quota! below, deliberately -- see ADR-0025. Every
+      # field Resume::Pdf.guard_renderable! walks is a real Resume/Experience/
+      # Education attribute that exists right here, before any LLM call, so a
+      # refusal that's knowable this early must not cost a pdf_generation slot
+      # the way a refusal from inside the job legitimately would. Safe to log
+      # the message, same reasoning Resume::OptimizedPdfJob already relies on:
+      # this error carries only a Unicode block name and a count (ADR-0015).
+      Rails.logger.error("DownloadsController refused resume #{@resume.id}: #{unrenderable_error.class} (#{unrenderable_error.message})")
+      flash.now[:alert] = unrenderable_error.user_message
       template = "resumes/show"
       status = :unprocessable_entity
     else
@@ -103,4 +116,16 @@ class DownloadsController < ApplicationController
     send_data cached[:bytes], filename: "#{resume.name.presence || 'resume'}.pdf",
       type: "application/pdf", disposition: "attachment"
   end
+
+  private
+
+    # nil when @resume renders fine, or the raised error otherwise. A plain
+    # method rather than a boolean predicate so #create can log and build the
+    # user-facing message from the same error object without guarding twice.
+    def renderability_error
+      Resume::Pdf.guard_renderable!(resume: @resume)
+      nil
+    rescue Resume::Pdf::UnrenderableCharacterError => e
+      e
+    end
 end
