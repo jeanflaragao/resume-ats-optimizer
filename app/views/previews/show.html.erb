@@ -28,9 +28,16 @@
         <p class="text-sm text-gray-500">
           <%= [ experience.location, date_text ].select(&:present?).join(" | ") %>
         </p>
+        <%# Zipped before filtering blanks, to keep each bullet paired with its own
+            fallback flag -- filtering bullets first would desync the two arrays'
+            indexes. Issue #117: informational only, no form -- nothing was lost,
+            the original wording was preserved verbatim. %>
         <ul class="list-disc list-inside text-gray-700">
-          <% Array(experience.bullets).select(&:present?).each do |bullet| %>
-            <li><%= bullet %></li>
+          <% experience.bullets.zip(experience.bullet_fallbacks).select { |bullet, _| bullet.present? }.each do |bullet, fell_back| %>
+            <li>
+              <%= bullet %>
+              <% if fell_back %><span class="text-xs text-gray-400">kept original wording</span><% end %>
+            </li>
           <% end %>
         </ul>
       </div>

@@ -24,7 +24,7 @@ class BulletRewriterTest < ActiveSupport::TestCase
       chat: fake_chat
     )
 
-    assert_equal [ "Delivered a platform rewrite for backend services" ], result
+    assert_equal [ BulletRewriter::Rewrite.new(text: "Delivered a platform rewrite for backend services", fell_back: false) ], result
     assert_equal BulletRewriter::Schema, fake_chat.schema
     assert_includes fake_chat.prompt, "Shipped a platform rewrite for backend services"
     assert_includes fake_chat.prompt, "Looking for a backend engineer with platform rewrite experience."
@@ -58,7 +58,7 @@ class BulletRewriterTest < ActiveSupport::TestCase
       BulletRewriter.call(bullets: [ "Built REST APIs" ], job_description_text: "Anything.", chat: fake_chat)
     end
 
-    assert_equal [ "Built REST APIs" ], result
+    assert_equal [ BulletRewriter::Rewrite.new(text: "Built REST APIs", fell_back: true) ], result
     assert_includes log_output, "bullet 1"
     assert_includes log_output, "kubernetes"
   end
@@ -110,7 +110,11 @@ class BulletRewriterTest < ActiveSupport::TestCase
       chat: fake_chat
     )
 
-    assert_equal [ "Delivered a platform rewrite for backend services", "Built REST APIs" ], result
+    assert_equal [
+      BulletRewriter::Rewrite.new(text: "Delivered a platform rewrite for backend services", fell_back: false),
+      BulletRewriter::Rewrite.new(text: "Built REST APIs", fell_back: true)
+    ], result
+    assert_equal [ false, true ], result.map(&:fell_back)
   end
 
   private

@@ -6,7 +6,14 @@
 # Resume::Optimization.call(...)) needs no changes to Resume::Pdf itself.
 class Resume::Optimization
   Result = Data.define(:name, :email, :phone, :summary, :skills, :experiences, :educations)
-  Experience = Data.define(:company, :title, :location, :starts_on, :ends_on, :bullets)
+  # bullet_fallbacks is a parallel array (same order/length as bullets, true
+  # where BulletRewriter fell back to the original wording) -- purely
+  # additive over bullets itself, which stays Array<String> so Resume::Pdf's
+  # existing contract with Experience is unchanged. Issue #117: a
+  # preview-only signal that Resume::Pdf must never read -- see
+  # Resume::OptimizationTest for the test proving that, not just documenting
+  # it here.
+  Experience = Data.define(:company, :title, :location, :starts_on, :ends_on, :bullets, :bullet_fallbacks)
   # Educations are copied into a value object for the same reason experiences
   # are, rather than passed through as the ActiveRecord relation they used to
   # be (issue #83): Resume::CachedOptimization writes this Result into
@@ -62,17 +69,20 @@ class Resume::Optimization
     LlmCallGuard.ensure_headroom!(rewrite_request_count)
 
     resume.experiences.map do |experience|
+      rewrites = BulletRewriter.call(
+        bullets: experience.bullets,
+        job_description_text: job_description_text,
+        chat: chat
+      )
+
       Experience.new(
         company: experience.company,
         title: experience.title,
         location: experience.location,
         starts_on: experience.starts_on,
         ends_on: experience.ends_on,
-        bullets: BulletRewriter.call(
-          bullets: experience.bullets,
-          job_description_text: job_description_text,
-          chat: chat
-        )
+        bullets: rewrites.map(&:text),
+        bullet_fallbacks: rewrites.map(&:fell_back)
       )
     end
   end

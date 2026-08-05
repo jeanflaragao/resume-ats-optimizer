@@ -9,6 +9,14 @@ class BulletRewriter
   include RedactedTokenHint
   class MismatchedBulletCountError < StandardError; end
 
+  # #call returns Array<Rewrite> rather than two parallel arrays (bullet
+  # text + fallback flags): a single struct per bullet can't have its text
+  # desync from its own fell_back flag the way two independently-returned
+  # arrays could. Resume::Optimization::Experience (issue #117) splits this
+  # into its own bullets:/bullet_fallbacks: pair, since Resume::Pdf's
+  # contract needs bullets to stay Array<String>.
+  Rewrite = Data.define(:text, :fell_back)
+
   FIDELITY_MIN_TOKEN_COVERAGE = FidelityCheck::DEFAULT_MIN_TOKEN_COVERAGE
 
   # Identifies "the rewrite this code produces" for Resume::CachedOptimization's
@@ -85,13 +93,13 @@ class BulletRewriter
       source_text: original,
       min_token_coverage: FIDELITY_MIN_TOKEN_COVERAGE
     )
-    return candidate if result.passed
+    return Rewrite.new(text: candidate, fell_back: false) if result.passed
 
     Rails.logger.warn(
       "BulletRewriter: bullet #{index + 1} failed fidelity check " \
       "(unverifiable: #{redacted_token_hint(result.unverifiable_tokens)}); using original wording instead."
     )
-    original
+    Rewrite.new(text: original, fell_back: true)
   end
 
   def prompt
