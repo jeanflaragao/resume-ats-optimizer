@@ -6,6 +6,48 @@
     <%= pluralize(@resume.educations.size, "education entry", "education entries") %>.
   </p>
 
+  <%# ADR-0031: a quiet list, not a dedicated panel -- measured volume is
+      ~0-2 items per resume. Each row is either a one-field inline form
+      (case 1: unparsed date, or an in-scope case 2 field drop) or plain
+      informational text (a whole dropped experience/education entry --
+      deliberately not re-addable here, see PendingItemsController). %>
+  <% pending_rows = pending_item_rows(@resume) %>
+  <% if pending_rows.any? %>
+    <div class="border-t pt-4 mb-6 text-sm text-gray-600 flex flex-col gap-2">
+      <% pending_rows.each do |row| %>
+        <div class="flex flex-wrap items-center gap-2">
+          <span>
+            <% if row.kind == "unparsed_date" %>
+              <%= pending_item_label(row) %>: we couldn't read "<%= row.raw_value %>" as a date.
+            <% elsif %w[experience education].include?(row.field) %>
+              <%= row.reason.capitalize %>.
+            <% else %>
+              <%= pending_item_label(row) %>: <%= row.reason %>.
+            <% end %>
+          </span>
+
+          <% if pending_item_fillable?(row) %>
+            <%= form_with url: resume_pending_items_path(@resume), method: :post, scope: :pending_item,
+                  class: "flex items-center gap-1" do |form| %>
+              <%= form.hidden_field :scope, value: row.scope %>
+              <%= form.hidden_field :field, value: row.field %>
+              <% if row.position %>
+                <%= form.hidden_field :position, value: row.position %>
+              <% end %>
+              <% if row.kind == "unparsed_date" %>
+                <%= form.date_field :value, required: true, class: "border rounded px-1 py-0.5 text-sm" %>
+              <% else %>
+                <%= form.text_field :value, required: true, placeholder: pending_item_label(row),
+                      class: "border rounded px-1 py-0.5 text-sm" %>
+              <% end %>
+              <%= form.submit "Save", class: "text-blue-600 text-sm cursor-pointer" %>
+            <% end %>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+
   <h2 class="text-lg font-semibold mb-2">Check against a job description</h2>
   <p class="text-gray-600 mb-4">
     Paste a job posting below to see how this resume matches it.

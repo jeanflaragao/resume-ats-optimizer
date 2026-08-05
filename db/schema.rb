@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_04_220330) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_05_225258) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -19,6 +19,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_04_220330) do
     t.string "degree"
     t.date "ends_on"
     t.string "field_of_study"
+    t.jsonb "pending_items", default: [], null: false
     t.integer "position"
     t.bigint "resume_id", null: false
     t.string "school", null: false
@@ -33,6 +34,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_04_220330) do
     t.datetime "created_at", null: false
     t.date "ends_on"
     t.string "location"
+    t.jsonb "pending_items", default: [], null: false
     t.integer "position"
     t.bigint "resume_id", null: false
     t.date "starts_on"
@@ -57,6 +59,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_04_220330) do
     t.datetime "last_accessed_at"
     t.string "name"
     t.string "owner_token"
+    t.jsonb "pending_items", default: [], null: false
     t.string "phone"
     t.jsonb "skills", default: [], null: false
     t.string "source"

@@ -30,6 +30,12 @@ require "pdf/reader"
 # email/phone drops are logged without the raw value (field name/reason only) —
 # unlike every other field, these are PII and shouldn't land verbatim in logs.
 #
+# Every drop below also appends a "pending item" (see #pending_item) alongside
+# its existing warn_drop log line — ADR-0031: category + reason only, never the
+# dropped value itself, so a fabricated field is never shown back to the user
+# as something to accept. Resume::Import persists these onto the created
+# Resume/Experience/Education rows so resumes/show.html.erb can surface them.
+#
 # Note: reading the file's raw text here (via pdf-reader, for PDFs) to verify
 # against reintroduces pdf-reader's documented layout-reliability ceiling
 # (see Extractors::PdfRegex) as a verification floor under this LLM path —
@@ -76,18 +82,21 @@ class Resume::Extractors::Llm
   attr_reader :file_path, :chat
 
   def verify(data)
+    pending_items = []
+
     {
-      "name" => verified_verbatim_field(data["name"], "name"),
-      "email" => verified_verbatim_field(data["email"], "email"),
-      "phone" => verified_phone(data["phone"]),
-      "summary" => verified_summary(data["summary"]),
-      "skills" => verified_skills(Array(data["skills"])),
-      "experiences" => Array(data["experiences"]).filter_map { |experience| verified_experience(experience) },
-      "educations" => Array(data["educations"]).filter_map { |education| verified_education(education) }
+      "name" => verified_verbatim_field(data["name"], "name", pending_items),
+      "email" => verified_verbatim_field(data["email"], "email", pending_items),
+      "phone" => verified_phone(data["phone"], pending_items),
+      "summary" => verified_summary(data["summary"], pending_items),
+      "skills" => verified_skills(Array(data["skills"]), pending_items),
+      "experiences" => Array(data["experiences"]).filter_map { |experience| verified_experience(experience, pending_items) },
+      "educations" => Array(data["educations"]).filter_map { |education| verified_education(education, pending_items) },
+      "pending_items" => pending_items
     }
   end
 
-  def verified_summary(summary)
+  def verified_summary(summary, pending_items)
     return nil if summary.blank?
 
     result = fidelity_check(summary, SUMMARY_MIN_TOKEN_COVERAGE)
@@ -95,76 +104,97 @@ class Resume::Extractors::Llm
 
     warn_drop("summary", "unverifiable tokens: #{result.unverifiable_tokens.size} tokens",
               token_info: redacted_token_hint(result.unverifiable_tokens))
+    pending_items << pending_item("summary", "didn't closely match your original document")
     nil
   end
 
-  def verified_skills(skills)
-    skills.select do |skill|
+  # Aggregates all dropped skills into at most one pending item, rather than
+  # one per drop -- PendingItemsController fills in a pending item by (scope,
+  # field, position), and "skill" is the only field an entry can have more
+  # than one drop for, so multiple identical items would be indistinguishable
+  # from each other (and a fill/delete on one would remove all of them).
+  def verified_skills(skills, pending_items)
+    kept = skills.select do |skill|
       next true if word_boundary_match?(skill, source_text)
 
       warn_drop("skill", "not found in source text")
       false
     end
+
+    dropped_count = skills.size - kept.size
+    pending_items << pending_item("skill", drop_count_reason("skill", dropped_count, "didn't appear in your original document")) if dropped_count > 0
+
+    kept
   end
 
-  def verified_experience(experience)
+  def verified_experience(experience, pending_items)
     company = experience["company"]
     title = experience["title"]
 
     if company.blank? || title.blank?
       warn_drop("experience entry", "required field blank")
+      pending_items << pending_item("experience", "an experience entry couldn't be verified")
       return nil
     end
 
     unless word_boundary_match?(company.to_s, source_text) && word_boundary_match?(title.to_s, source_text)
       warn_drop("experience entry", "not found in source text")
+      pending_items << pending_item("experience", "an experience entry didn't appear in your original document")
       return nil
     end
 
+    entry_pending_items = []
     experience.merge(
-      "location" => verified_verbatim_field(experience["location"], "location"),
-      "starts_on" => verified_year(experience["starts_on"], "starts_on"),
-      "ends_on" => verified_year(experience["ends_on"], "ends_on"),
-      "bullets" => verified_bullets(Array(experience["bullets"]))
+      "location" => verified_verbatim_field(experience["location"], "location", entry_pending_items),
+      "starts_on" => verified_year(experience["starts_on"], "starts_on", entry_pending_items),
+      "ends_on" => verified_year(experience["ends_on"], "ends_on", entry_pending_items),
+      "bullets" => verified_bullets(Array(experience["bullets"]), entry_pending_items),
+      "pending_items" => entry_pending_items
     )
   end
 
-  def verified_education(education)
+  def verified_education(education, pending_items)
     school = education["school"]
 
     if school.blank?
       warn_drop("education entry", "required field blank")
+      pending_items << pending_item("education", "an education entry couldn't be verified")
       return nil
     end
 
     unless word_boundary_match?(school.to_s, source_text)
       warn_drop("education entry", "not found in source text")
+      pending_items << pending_item("education", "an education entry didn't appear in your original document")
       return nil
     end
 
+    entry_pending_items = []
     education.merge(
-      "starts_on" => verified_year(education["starts_on"], "starts_on"),
-      "ends_on" => verified_year(education["ends_on"], "ends_on")
+      "starts_on" => verified_year(education["starts_on"], "starts_on", entry_pending_items),
+      "ends_on" => verified_year(education["ends_on"], "ends_on", entry_pending_items),
+      "pending_items" => entry_pending_items
     )
   end
 
-  def verified_verbatim_field(value, field_name)
+  def verified_verbatim_field(value, field_name, pending_items)
     return value if value.blank?
     return value if word_boundary_match?(value, source_text)
 
     warn_drop(field_name, "not found in source text")
+    pending_items << pending_item(field_name, "didn't appear in your original document")
     nil
   end
 
   # Compared by digit content rather than a literal match, since legitimate
   # reformatting is expected (e.g. "555.123.4567" vs "(555) 123-4567").
-  def verified_phone(phone)
+  def verified_phone(phone, pending_items)
     return phone if phone.blank?
 
     digits = phone.scan(DIGITS_PATTERN).join
     return phone if digits.present? && source_digits.include?(digits)
 
     warn_drop("phone", "not found in source text")
+    pending_items << pending_item("phone", "didn't appear in your original document")
     nil
   end
 
@@ -172,18 +202,21 @@ class Resume::Extractors::Llm
     @source_digits ||= source_text.scan(DIGITS_PATTERN).join
   end
 
-  def verified_year(date_value, field_name)
+  def verified_year(date_value, field_name, pending_items)
     return date_value if date_value.blank?
 
     year = date_value[YEAR_PATTERN, 1]
     return date_value if year && source_text.include?(year)
 
     warn_drop(field_name, "year not found in source text")
+    pending_items << pending_item(field_name, "date didn't appear in your original document")
     nil
   end
 
-  def verified_bullets(bullets)
-    bullets.each_with_index.filter_map do |bullet, index|
+  # Aggregated into at most one pending item per experience, same reasoning as
+  # verified_skills above.
+  def verified_bullets(bullets, pending_items)
+    kept = bullets.each_with_index.filter_map do |bullet, index|
       result = fidelity_check(bullet, BULLET_MIN_TOKEN_COVERAGE)
       next bullet if result.passed
 
@@ -191,15 +224,35 @@ class Resume::Extractors::Llm
                 token_info: redacted_token_hint(result.unverifiable_tokens))
       nil
     end
+
+    dropped_count = bullets.size - kept.size
+    pending_items << pending_item("bullet", drop_count_reason("bullet", dropped_count, "didn't closely match your original document")) if dropped_count > 0
+
+    kept
   end
 
   def fidelity_check(candidate_text, min_token_coverage)
     FidelityCheck.call(candidate_text: candidate_text, source_text: source_text, min_token_coverage: min_token_coverage)
   end
 
+  def drop_count_reason(noun, count, tail)
+    subject = count == 1 ? "a #{noun}" : "#{count} #{noun.pluralize}"
+    "#{subject} #{tail}"
+  end
+
   def warn_drop(field, reason, token_info: nil)
     token_hint = token_info.present? ? " [#{token_info}]" : ""
     Rails.logger.warn("Resume::Extractors::Llm: dropped #{field} (#{reason})#{token_hint}")
+  end
+
+  # kind is always "dropped_field" here (as opposed to Resume::Import's own
+  # "unparsed_date" kind) — every drop in this class is a possibly-fabricated
+  # value, never a parse failure, so raw_value is always nil by construction.
+  # See ADR-0031: that's what makes "never prefill a dropped value" a provable
+  # property of the data rather than a discipline every call site has to
+  # remember.
+  def pending_item(field, reason)
+    { "kind" => "dropped_field", "field" => field, "reason" => reason, "raw_value" => nil }
   end
 
   def source_text

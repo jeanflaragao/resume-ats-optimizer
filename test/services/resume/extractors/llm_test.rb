@@ -39,7 +39,12 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
 
     result = Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat)
 
-    assert_equal extracted, result
+    expected = extracted.merge(
+      "pending_items" => [],
+      "experiences" => [ extracted["experiences"].first.merge("pending_items" => []) ],
+      "educations" => [ extracted["educations"].first.merge("pending_items" => []) ]
+    )
+    assert_equal expected, result
     assert_equal Resume::ExtractionSchema, fake_chat.schema
     assert_equal sample_pdf_path, fake_chat.attached_file
     assert_includes fake_chat.prompt, "Extract"
@@ -55,6 +60,11 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     assert_equal [], result["experiences"]
     assert_includes log_output, "experience entry"
     assert_not_includes log_output, "Wonka Industries"
+
+    pending = result["pending_items"].find { |item| item["field"] == "experience" }
+    assert_equal "dropped_field", pending["kind"]
+    assert_nil pending["raw_value"]
+    assert_not_includes pending["reason"], "Wonka Industries"
   end
 
   test "drops a whole experience entry when its company is blank" do
@@ -66,6 +76,7 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
 
     assert_equal [], result["experiences"]
     assert_includes log_output, "required field blank"
+    assert_equal 1, result["pending_items"].count { |item| item["field"] == "experience" }
   end
 
   test "drops a whole experience entry when its title is nil" do
@@ -88,6 +99,7 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
 
     assert_equal [], result["educations"]
     assert_includes log_output, "required field blank"
+    assert_equal 1, result["pending_items"].count { |item| item["field"] == "education" }
   end
 
   test "drops a whole education entry when its school isn't in the source" do
@@ -100,6 +112,10 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     assert_equal [], result["educations"]
     assert_includes log_output, "not found in source text"
     assert_not_includes log_output, "Wonka University"
+
+    pending = result["pending_items"].find { |item| item["field"] == "education" }
+    assert_nil pending["raw_value"]
+    assert_not_includes pending["reason"], "Wonka University"
   end
 
   test "drops only a fabricated bullet, keeping real ones from the same experience" do
@@ -110,6 +126,7 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     result = Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat)
 
     assert_equal [ "Led migration to microservices" ], result["experiences"].first["bullets"]
+    assert_equal 1, result["experiences"].first["pending_items"].count { |item| item["field"] == "bullet" }
   end
 
   test "drops only a hallucinated skill, keeping real ones" do
@@ -118,6 +135,33 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     result = Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat)
 
     assert_equal [ "Ruby" ], result["skills"]
+    pending = result["pending_items"].find { |item| item["field"] == "skill" }
+    assert_equal "dropped_field", pending["kind"]
+    assert_nil pending["raw_value"]
+  end
+
+  # PendingItemsController fills in a pending item by (scope, field, position)
+  # -- if two dropped skills produced two identical pending items, filling in
+  # one would be indistinguishable from filling in the other and (per
+  # Array#- semantics) removing one would remove both. Aggregating into one
+  # item per field closes that off entirely rather than relying on callers to
+  # dedupe correctly.
+  test "aggregates multiple dropped skills and bullets into one pending item each, not one per drop" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge(
+      "skills" => [ "Ruby", "Kubernetes", "QuantumFramework" ],
+      "experiences" => [ base_experience.merge("bullets" => [ "Led migration to microservices", "Increased revenue by 200%", "Solved world hunger" ]) ]
+    ))
+
+    result = Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat)
+
+    assert_equal [ "Ruby" ], result["skills"]
+    assert_equal 1, result["pending_items"].count { |item| item["field"] == "skill" }
+    assert_includes result["pending_items"].find { |item| item["field"] == "skill" }["reason"], "2 skills"
+
+    assert_equal [ "Led migration to microservices" ], result["experiences"].first["bullets"]
+    bullet_items = result["experiences"].first["pending_items"].select { |item| item["field"] == "bullet" }
+    assert_equal 1, bullet_items.size
+    assert_includes bullet_items.first["reason"], "2 bullets"
   end
 
   test "keeps a legitimately condensed summary" do
@@ -139,6 +183,10 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
 
     assert_nil result["experiences"].first["starts_on"]
     assert_equal "Acme Corp", result["experiences"].first["company"]
+
+    pending = result["experiences"].first["pending_items"].find { |item| item["field"] == "starts_on" }
+    assert_equal "dropped_field", pending["kind"]
+    assert_nil pending["raw_value"]
   end
 
   test "drops a fabricated name without logging the raw value" do
@@ -149,6 +197,10 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     assert_nil result["name"]
     assert_includes log_output, "name"
     assert_not_includes log_output, "John Smith"
+
+    pending = result["pending_items"].find { |item| item["field"] == "name" }
+    assert_nil pending["raw_value"]
+    assert_not_includes pending["reason"], "John Smith"
   end
 
   test "drops a fabricated email without logging the raw value" do
@@ -193,7 +245,7 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
 
     result = Resume::Extractors::Llm.call(file_path: json_fixture_path(extracted), chat: fake_chat)
 
-    assert_equal extracted, result
+    assert_equal extracted.merge("pending_items" => []), result
   end
 
   test "drops a fabricated summary without logging the raw summary text" do
@@ -276,6 +328,10 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     assert_nil result["experiences"].first["location"]
     assert_includes log_output, "location"
     assert_not_includes log_output, "Mars Colony Seven"
+
+    pending = result["experiences"].first["pending_items"].find { |item| item["field"] == "location" }
+    assert_nil pending["raw_value"]
+    assert_not_includes pending["reason"], "Mars Colony Seven"
   end
 
   test "drops a fabricated start date without logging the raw date string" do
@@ -288,6 +344,47 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     assert_nil result["experiences"].first["starts_on"]
     assert_includes log_output, "starts_on"
     assert_not_includes log_output, "1999-05"
+  end
+
+  # ADR-0031's whole design rests on this being an enforceable, testable
+  # property, not just a convention: every dropped_field pending item must
+  # carry no raw value, anywhere in the returned tree. Fabricates content
+  # across every field type in one extraction so a single assertion covers
+  # the resume-level, experience-level, and education-level accumulators at
+  # once, rather than trusting that testing each call site in isolation
+  # generalizes to all of them.
+  test "never carries a raw value on any dropped_field pending item, across every field type at once" do
+    fabricated_values = [
+      "John Smith", "someone-else@example.com", "999-999-9999",
+      "Pioneered groundbreaking quantum blockchain synergies",
+      "QuantumFramework", "Mars Colony Seven", "Wonka Industries", "Wonka University"
+    ]
+
+    fake_chat = FakeChat.new(base_extraction.deep_merge(
+      "name" => "John Smith",
+      "email" => "someone-else@example.com",
+      "phone" => "999-999-9999",
+      "summary" => "Pioneered groundbreaking quantum blockchain synergies",
+      "skills" => [ "Ruby", "QuantumFramework" ],
+      "experiences" => [ base_experience.merge("location" => "Mars Colony Seven", "company" => "Wonka Industries") ],
+      "educations" => [ { "school" => "Wonka University", "degree" => nil, "field_of_study" => nil, "starts_on" => nil, "ends_on" => nil } ]
+    ))
+
+    result = Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat)
+
+    all_pending_items = result["pending_items"] +
+      result["experiences"].flat_map { |e| e["pending_items"] } +
+      result["educations"].flat_map { |e| e["pending_items"] }
+
+    assert_operator all_pending_items.size, :>, 0, "expected at least one dropped_field pending item to check"
+
+    all_pending_items.each do |item|
+      assert_equal "dropped_field", item["kind"]
+      assert_nil item["raw_value"], "pending item for #{item['field']} must never carry the dropped value"
+      fabricated_values.each do |value|
+        assert_not_includes item["reason"], value, "reason for #{item['field']} must not leak the fabricated value"
+      end
+    end
   end
 
   test "raises a clear error when the file doesn't exist" do

@@ -12,6 +12,7 @@ Rails.application.routes.draw do
   resources :resumes, only: %i[new create show] do
     resource :job_description, only: :create
     resource :preview, only: :create
+    resource :pending_items, only: :create
     resources :downloads, only: :create
   end
   resources :downloads, only: :show do
