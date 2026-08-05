@@ -18,6 +18,10 @@ class Resume::ImportTest < ActiveSupport::TestCase
     assert_equal Date.new(2020, 1, 1), resume.experiences.second.ends_on
 
     assert_equal Date.new(2012, 1, 1), resume.educations.first.starts_on
+
+    assert_equal [], resume.pending_items
+    assert_equal [], resume.experiences.first.pending_items
+    assert_equal [], resume.educations.first.pending_items
   end
 
   test "parses a starts_on that Date.parse can't handle as nil instead of raising" do
@@ -33,6 +37,10 @@ class Resume::ImportTest < ActiveSupport::TestCase
 
     assert_equal "Acme Corp", resume.experiences.first.company
     assert_nil resume.experiences.first.starts_on
+
+    pending = resume.experiences.first.pending_items.find { |item| item["field"] == "starts_on" }
+    assert_equal "unparsed_date", pending["kind"]
+    assert_equal "Summer 2020", pending["raw_value"]
   end
 
   test "raises for an unknown strategy" do

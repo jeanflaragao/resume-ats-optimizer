@@ -11,6 +11,15 @@ class Resume::Import
     "regex" => { "pdf" => Resume::Extractors::PdfRegex, "json" => Resume::Extractors::JsonMapper }
   }.freeze
 
+  # parse_date's return: `date` is nil whenever there was nothing to parse OR
+  # parsing failed -- `raw_value` is the one signal that distinguishes "blank"
+  # from "failed", set only when the rescue below actually fires. That's what
+  # lets persist build a pending item with the original string a user can
+  # correct, without also flagging every ordinary blank/"present" date.
+  DateParseResult = Data.define(:date, :raw_value)
+
+  UNPARSED_DATE_REASON = "not recognized as a date"
+
   def self.call(file:, strategy:, chat: LlmCallGuard.chat)
     new(file: file, strategy: strategy, chat: chat).call
   end
@@ -61,29 +70,38 @@ class Resume::Import
         phone: data["phone"],
         summary: data["summary"],
         skills: Array(data["skills"]),
-        source: source
+        source: source,
+        pending_items: Array(data["pending_items"])
       )
 
       Array(data["experiences"]).each_with_index do |experience, index|
+        starts_on = parse_date(experience["starts_on"])
+        ends_on = parse_date(experience["ends_on"])
+
         resume.experiences.create!(
           company: experience["company"],
           title: experience["title"],
           location: experience["location"],
-          starts_on: parse_date(experience["starts_on"]),
-          ends_on: parse_date(experience["ends_on"]),
+          starts_on: starts_on.date,
+          ends_on: ends_on.date,
           bullets: Array(experience["bullets"]),
-          position: index
+          position: index,
+          pending_items: Array(experience["pending_items"]) + unparsed_date_items(starts_on, ends_on)
         )
       end
 
       Array(data["educations"]).each_with_index do |education, index|
+        starts_on = parse_date(education["starts_on"])
+        ends_on = parse_date(education["ends_on"])
+
         resume.educations.create!(
           school: education["school"],
           degree: education["degree"],
           field_of_study: education["field_of_study"],
-          starts_on: parse_date(education["starts_on"]),
-          ends_on: parse_date(education["ends_on"]),
-          position: index
+          starts_on: starts_on.date,
+          ends_on: ends_on.date,
+          position: index,
+          pending_items: Array(education["pending_items"]) + unparsed_date_items(starts_on, ends_on)
         )
       end
 
@@ -96,10 +114,10 @@ class Resume::Import
   # year for education dates), so those are handled explicitly before falling
   # back to Date.parse for everything else (including "Jan 2020"-style text).
   def parse_date(value)
-    return nil if value.blank?
-    return nil if value.match?(/\A(present|current)\z/i)
+    return DateParseResult.new(date: nil, raw_value: nil) if value.blank?
+    return DateParseResult.new(date: nil, raw_value: nil) if value.match?(/\A(present|current)\z/i)
 
-    case value
+    date = case value
     when /\A(\d{4})-(\d{2})\z/
       Date.new($1.to_i, $2.to_i, 1)
     when /\A\d{4}\z/
@@ -107,7 +125,16 @@ class Resume::Import
     else
       Date.parse(value)
     end
+    DateParseResult.new(date: date, raw_value: nil)
   rescue ArgumentError, TypeError
-    nil
+    DateParseResult.new(date: nil, raw_value: value)
+  end
+
+  def unparsed_date_items(starts_on, ends_on)
+    [ [ "starts_on", starts_on ], [ "ends_on", ends_on ] ].filter_map do |field, result|
+      next if result.raw_value.nil?
+
+      { "kind" => "unparsed_date", "field" => field, "reason" => UNPARSED_DATE_REASON, "raw_value" => result.raw_value }
+    end
   end
 end
