@@ -27,5 +27,21 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
     # Docker's namespace restrictions.
     driver_option.add_argument("--no-sandbox")
     driver_option.add_argument("--disable-dev-shm-usage")
+
+    # Headless Chrome logs CSP violations to the browser console but does not fail
+    # the page -- without this, a system test stays green even if CSP silently
+    # blocked every Stimulus controller (issue #60). Must be set on Options before
+    # the driver launches: this is what serializes to the goog:loggingPrefs
+    # capability.
+    driver_option.logging_prefs = { browser: "ALL" }
+  end
+
+  # See the logging_prefs comment above. Selenium 4.46's log-fetching API is
+  # `driver.logs.get(:browser)`, not the older `.manage.logs` chain.
+  def assert_no_csp_violations!
+    violations = page.driver.browser.logs.get(:browser)
+      .select { |entry| entry.message.include?("Content Security Policy") }
+
+    assert_empty violations, "CSP violations detected:\n#{violations.map(&:message).join("\n")}"
   end
 end
