@@ -20,7 +20,10 @@ Rails.application.configure do
     # the exact SHA-256 of that one literal, byte-identical value Turbo always
     # sets -- not a blanket 'unsafe-inline' allowance. If this value ever changes
     # in a turbo-rails upgrade, the hash stops matching and the violation reappears
-    # loudly (report-only or the system test) rather than silently.
+    # loudly (report-only or the system test) rather than silently. This hash covers
+    # only the constructor's one-time value -- it does NOT make the bar safe to
+    # re-enable; see docs/adr/0027-disable-turbo-progress-bar-for-csp.md and
+    # app/javascript/application.js's progressBarDelay line, which this depends on.
     policy.style_src :self, :unsafe_hashes, "sha256-WAyOw4V+FqDc35lQPyRADLBWbuNK8ahvYEaQIYF1+Ps="
     policy.img_src     :self, :data
     policy.object_src  :none
