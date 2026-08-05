@@ -22,7 +22,10 @@ class Resume::CachedOptimization
   # Shape of the cached value: the members of Resume::Optimization::Result,
   # Experience and Education. Bump when they change, so a deploy cannot read
   # yesterday's shape back.
-  KEY_VERSION = 1
+  #
+  # 2 (issue #117): Experience gained bullet_fallbacks, so a cached v1 entry
+  # is missing an attribute Result#bullet_fallbacks callers now expect.
+  KEY_VERSION = 2
 
   CONTEXTS = %i[preview download].freeze
 

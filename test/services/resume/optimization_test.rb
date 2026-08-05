@@ -89,6 +89,7 @@ class Resume::OptimizationTest < ActiveSupport::TestCase
     result = Resume::Optimization.call(resume: resume, job_description_text: "Anything.", chat: fake_chat)
 
     assert_equal [], result.experiences.first.bullets
+    assert_equal [], result.experiences.first.bullet_fallbacks
     assert_empty fake_chat.prompts
   end
 
@@ -104,7 +105,47 @@ class Resume::OptimizationTest < ActiveSupport::TestCase
     end
 
     assert_equal [ "Built REST APIs" ], result.experiences.first.bullets
+    assert_equal [ true ], result.experiences.first.bullet_fallbacks
     assert_includes log_output, "bullet 1"
+  end
+
+  # Issue #117: bullet_fallbacks must stay aligned with bullets index-for-index
+  # in a mixed batch, since previews/show.html.erb zips them together.
+  test "bullet_fallbacks stays aligned with bullets when only some rewrites fall back" do
+    resume = Resume.new(name: "Alex Doe")
+    resume.experiences.build(
+      company: "Acme", title: "Engineer",
+      bullets: [ "Shipped a platform rewrite for backend services", "Built REST APIs" ], position: 1
+    )
+    fake_chat = FakeChat.new([
+      { "bullets" => [ "Delivered a platform rewrite for backend services", "Built REST APIs using Kubernetes and reduced latency by 40%" ] }
+    ])
+
+    result = Resume::Optimization.call(resume: resume, job_description_text: "Anything.", chat: fake_chat)
+
+    experience = result.experiences.first
+    assert_equal [ "Delivered a platform rewrite for backend services", "Built REST APIs" ], experience.bullets
+    assert_equal [ false, true ], experience.bullet_fallbacks
+  end
+
+  # Issue #117: the explicit ask was to prove Resume::Pdf never surfaces the
+  # fallback signal rather than relying on its duck typing holding. Renders a
+  # real PDF and inspects its extracted text, the same technique
+  # "rewritten bullets appear in the rendered PDF" above already uses.
+  test "a bullet's fallback flag never reaches the rendered PDF" do
+    resume = Resume.new(name: "Alex Doe")
+    resume.experiences.build(company: "Acme", title: "Engineer", bullets: [ "Built REST APIs" ], position: 1)
+    fake_chat = FakeChat.new([
+      { "bullets" => [ "Built REST APIs using Kubernetes and reduced latency by 40%" ] }
+    ])
+
+    result = with_captured_log { Resume::Optimization.call(resume: resume, job_description_text: "Anything.", chat: fake_chat) }.first
+    assert_equal [ true ], result.experiences.first.bullet_fallbacks, "test setup must actually produce a fallback"
+
+    text = extract_text(Resume::Pdf.call(resume: result))
+
+    assert_includes text, "Built REST APIs"
+    assert_not_includes text, "kept original wording"
   end
 
   private

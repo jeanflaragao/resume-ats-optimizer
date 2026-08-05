@@ -28,6 +28,9 @@ class ResumePreviewsTest < ActionDispatch::IntegrationTest
     # Resume::Optimization -> BulletRewriter -> LlmCallGuard chain executed,
     # not a bypass. Same technique test/services/resume/optimization_test.rb uses.
     assert_includes log_output, "bullet 1"
+    # Issue #117: the same guaranteed-fallback stub behavior above is a ready-made,
+    # unmocked proof the fell-back-to-original badge actually renders.
+    assert_includes response.body, "kept original wording"
   end
 
   test "a job description text over MAX_JOB_DESCRIPTION_LENGTH re-renders the resume's show page with an error" do
