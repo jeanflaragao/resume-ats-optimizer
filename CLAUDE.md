@@ -185,6 +185,16 @@ root `Dockerfile` via Kamal, but `config/deploy.yml` doesn't actually exist yet 
 - `docker compose run --rm web bin/rubocop` — lint (rubocop-rails-omakase config).
 - `docker compose down` — stop containers; add `-v` to also wipe the `db_data`/`bundle_data`
   volumes for a clean slate.
+- `git config core.hooksPath .githooks` — one-time, after cloning: installs this repo's
+  versioned git hooks (issue #19). `pre-commit` runs `bin/rubocop` on staged Ruby files only
+  (~2s, no-op if none are staged); `pre-push` runs the full suite
+  (`bin/rails db:prepare test test:system`) plus `bin/brakeman` once per push rather than once
+  per commit (~20s measured locally) — a deliberate split from "lint and tests before each
+  commit," since this repo's PRs routinely carry six-plus commits and a 20s+ pre-commit trains
+  people to reach for `--no-verify` permanently. Both hooks shell out to
+  `docker compose run --rm web ...` and fail (blocking the commit/push) if that fails for any
+  reason, including Docker not running — `--no-verify` is the deliberate, documented bypass for
+  either hook, not a silent no-op.
 
 ## Project layout
 

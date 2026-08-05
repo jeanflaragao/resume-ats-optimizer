@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Installed via `git config core.hooksPath .githooks` (see CLAUDE.md, Local
+# development). Lints staged Ruby files only -- the full suite runs in
+# pre-push instead, since this repo's PRs routinely carry several commits and
+# a slow pre-commit trains people to reach for --no-verify.
+set -euo pipefail
+
+mapfile -d '' -t staged_files < <(
+  git diff --cached --name-only --diff-filter=ACMR -z -- \
+    '*.rb' '*.rake' 'Gemfile' 'Rakefile' 'config.ru'
+)
+
+if [ "${#staged_files[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+echo "Running rubocop on ${#staged_files[@]} staged file(s)..."
+
+if ! docker compose run --rm web bin/rubocop --force-exclusion "${staged_files[@]}"; then
+  echo
+  echo "pre-commit: rubocop failed (see above). Fix the offenses, or bypass with 'git commit --no-verify'."
+  exit 1
+fi
