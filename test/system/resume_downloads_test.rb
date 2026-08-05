@@ -42,6 +42,10 @@ class ResumeDownloadsTest < ApplicationSystemTestCase
     assert_text "Preparing your download"
     assert_text "Generating your optimized resume PDF"
     assert_selector "turbo-cable-stream-source", visible: :all
+
+    # This is the one system test that exercises every page CSP touches (upload,
+    # match results, preview, download) in a single real-browser run (issue #60).
+    assert_no_csp_violations!
   ensure
     File.delete(path) if path && File.exist?(path)
   end
