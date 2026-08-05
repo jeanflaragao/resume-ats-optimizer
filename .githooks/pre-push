@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Installed via `git config core.hooksPath .githooks` (see CLAUDE.md, Local
+# development). Runs the full suite + Brakeman once per push rather than
+# once per commit -- see .githooks/pre-commit for why per-commit is too slow.
+set -euo pipefail
+
+echo "Running full test suite (bin/rails db:prepare test test:system)..."
+
+if ! docker compose run --rm web bin/rails db:prepare test test:system; then
+  echo
+  echo "pre-push: tests failed (see above). Fix them, or bypass with 'git push --no-verify'."
+  exit 1
+fi
+
+echo "Running brakeman..."
+
+if ! docker compose run --rm web bin/brakeman --no-pager -q; then
+  echo
+  echo "pre-push: brakeman found warnings (see above). Fix them, or bypass with 'git push --no-verify'."
+  exit 1
+fi
