@@ -90,6 +90,18 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     assert_includes log_output, "required field blank"
   end
 
+  test "drops a whole education entry when its school isn't in the source" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge(
+      "educations" => [ { "school" => "Wonka University", "degree" => "B.S. Computer Science", "field_of_study" => nil, "starts_on" => nil, "ends_on" => nil } ]
+    ))
+
+    result, log_output = with_captured_log { Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat) }
+
+    assert_equal [], result["educations"]
+    assert_includes log_output, "not found in source text"
+    assert_not_includes log_output, "Wonka University"
+  end
+
   test "drops only a fabricated bullet, keeping real ones from the same experience" do
     fake_chat = FakeChat.new(base_extraction.deep_merge(
       "experiences" => [ base_experience.merge("bullets" => [ "Led migration to microservices", "Increased revenue by 200%" ]) ]

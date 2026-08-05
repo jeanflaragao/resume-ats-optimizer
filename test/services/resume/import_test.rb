@@ -20,6 +20,21 @@ class Resume::ImportTest < ActiveSupport::TestCase
     assert_equal Date.new(2012, 1, 1), resume.educations.first.starts_on
   end
 
+  test "parses a starts_on that Date.parse can't handle as nil instead of raising" do
+    json = {
+      name: "Jane Doe",
+      experiences: [
+        { company: "Acme Corp", title: "Engineer", starts_on: "Summer 2020", ends_on: nil }
+      ],
+      educations: []
+    }.to_json
+
+    resume = Resume::Import.call(file: fixture_path(json), strategy: "regex")
+
+    assert_equal "Acme Corp", resume.experiences.first.company
+    assert_nil resume.experiences.first.starts_on
+  end
+
   test "raises for an unknown strategy" do
     assert_raises(Resume::Import::UnsupportedFormatError) do
       Resume::Import.call(file: fixture_path(valid_json), strategy: "nope")
