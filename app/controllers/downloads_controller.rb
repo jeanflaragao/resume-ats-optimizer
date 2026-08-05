@@ -17,7 +17,7 @@ class DownloadsController < ApplicationController
   # can finish and broadcast its Turbo Stream update before the status page's
   # ActionCable subscription has connected -- broadcasts aren't queued for late
   # subscribers, so that update is just lost, leaving "Generating..." stuck
-  # forever even though the download is actually ready. downloads/create.html.erb's
+  # forever even though the download is actually ready. downloads/pending.html.erb's
   # Stimulus controller hits this once on connect to catch that case directly,
   # without needing full polling.
   def ready
@@ -34,6 +34,16 @@ class DownloadsController < ApplicationController
     else
       render partial: "downloads/ready", locals: { download_id: params[:id] }
     end
+  rescue ActiveRecord::RecordNotFound
+    # Issue #114: a download_id owned by a different session must be indistinguishable
+    # from one that never existed, matching the property #show already has (ADR-0029) --
+    # otherwise the response itself (this 404 vs. the 204 above) tells a session holding
+    # someone else's id that the id is real. 204 rather than 404 specifically because it's
+    # the status the two already-safe branches above (nonexistent, not-yet-cached) share;
+    # download_status_controller.js only branches on response.ok, which both a 204 and a
+    # 404 already satisfy identically (204 is ok with a guaranteed-empty body; 404 exits
+    # the fetch handler via the !response.ok guard) -- confirmed by reading it, not assumed.
+    head :no_content
   end
   def create
     @resume = find_owned_resume!(params[:resume_id])
