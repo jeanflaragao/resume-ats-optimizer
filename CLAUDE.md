@@ -67,15 +67,19 @@ Tracking Systems: upload a LinkedIn data export, paste a job description, and ge
 ATS-friendly, tailored resume as a downloadable PDF. The full upload → analyze → preview →
 download pipeline exists end to end (see Project layout below for what each piece does); Phase 5
 (Frontend) is complete and Phase 6 (automation & quality, this issue included) is in progress.
-Open follow-up work: issue #48 (Kamal deployment/`config/deploy.yml` doesn't exist yet, so the
-Solid Queue worker has nowhere to run in production), plus two smaller UX gaps surfaced by the
+Deployable to Railway (ADR-0028) with a working Solid Queue worker (issue #48); the actual
+Railway project/environment is a manual step the maintainer runs from the runbook, not something
+this repo can do for itself. Open follow-up work: two smaller UX gaps surfaced by the
 turbo_stream conversion (#65, #66 — see ADR-0014). Per-issue history lives in `git log` and the
 GitHub issue tracker, not here; architectural decisions live in `docs/adr/`, linked from Stack
 and Project layout below where relevant.
 
 ## Stack
 
-**Rails 8, Hotwire monolith, single Docker image, deployed with Kamal to a VPS.**
+**Rails 8, Hotwire monolith, single Docker image, deployed to Railway.** Kamal is retained,
+unused, as the documented path to a possible later move to AWS — see
+[ADR-0028](docs/adr/0028-deploy-to-railway-not-kamal.md) for why Railway now and what the
+Kamal-flavored reasoning below still means without it.
 
 - **App structure**: standard Rails app (not `--api` mode) — server-rendered views with Turbo
   Frames/Streams driving the upload → analyze → preview → download flow, Stimulus for light
@@ -165,8 +169,8 @@ folders. Everything lives in standard Rails locations (`app/models/`,
 ## Local development
 
 No Postgres or `libpq` is required on the host — everything runs through Docker Compose
-(`docker-compose.yml` + `Dockerfile.dev`, dev-only; production is intended to build from the
-root `Dockerfile` via Kamal, but `config/deploy.yml` doesn't actually exist yet — see issue #48).
+(`docker-compose.yml` + `Dockerfile.dev`, dev-only; production builds from the same root
+`Dockerfile`, deployed to Railway per the runbook — see ADR-0028).
 
 - Copy `.env.example` to `.env` and fill in `ANTHROPIC_API_KEY` before running anything that
   calls the LLM (extraction, bullet rewriting) — gitignored, read automatically by

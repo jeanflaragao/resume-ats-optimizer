@@ -35,3 +35,4 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0025 | Check PDF renderability before spending quota, and resolve fallback fonts lazily | Accepted | [0025-check-renderability-before-spending-quota.md](0025-check-renderability-before-spending-quota.md) |
 | 0026 | Purge stale resumes with owner-scoped retention | Accepted | [0026-purge-stale-resumes.md](0026-purge-stale-resumes.md) |
 | 0027 | Disable Turbo's progress bar rather than widen style-src | Accepted | [0027-disable-turbo-progress-bar-for-csp.md](0027-disable-turbo-progress-bar-for-csp.md) |
+| 0028 | Deploy to Railway now; keep Kamal as the documented path to AWS later | Accepted | [0028-deploy-to-railway-not-kamal.md](0028-deploy-to-railway-not-kamal.md) |
