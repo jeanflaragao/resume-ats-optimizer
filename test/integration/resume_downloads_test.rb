@@ -26,12 +26,17 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "paste a job description"
   end
 
-  test "a non-blank job description text enqueues the PDF job and renders the status page" do
+  test "a non-blank job description text enqueues the PDF job and redirects to the addressable status page" do
     resume = upload_resume
 
     assert_enqueued_with(job: Resume::OptimizedPdfJob) do
       post resume_downloads_path(resume), params: { job_description_text: "We need a Ruby engineer." }
     end
+
+    pdf_request = Resume::PdfRequest.sole
+    assert_redirected_to download_path(pdf_request.download_id)
+
+    follow_redirect!
 
     assert_response :success
     assert_includes response.body, "Generating your optimized resume PDF"
@@ -92,6 +97,22 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :not_found
+  end
+
+  # Issue #66: this is the state a refresh mid-"Preparing your download..." lands in --
+  # enqueued, job not yet run (nothing in Rails.cache yet), only Resume::PdfRequest to go on.
+  test "an in-progress download is reachable at its own URL before the job has run" do
+    resume = upload_resume
+
+    post resume_downloads_path(resume), params: { job_description_text: "We need a Ruby engineer." }
+    download_id = Resume::PdfRequest.sole.download_id
+
+    get download_path(download_id)
+
+    assert_response :success
+    assert_includes response.body, "Preparing your download"
+    assert_includes response.body, "Generating your optimized resume PDF"
+    assert_includes response.body, ready_download_path(download_id)
   end
 
   test "serves the cached PDF bytes for a finished download" do
@@ -187,6 +208,11 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "expired"
   end
 
+  # Issue #66: DownloadsController#show now collapses an owner mismatch into the same
+  # "expired" response a nonexistent download_id gets (see the indistinguishability test
+  # below) rather than 404ing -- a deliberate change from this test's pre-#66 expectation,
+  # so that #show doesn't hand a session an oracle for "this id is real" now that #create
+  # puts download_id in a real, copyable URL.
   test "a finished download cannot be served to a different session even with a valid download_id" do
     resume = upload_resume
     download_id = SecureRandom.uuid
@@ -199,7 +225,51 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
 
     get download_path(download_id)
 
-    assert_response :not_found
+    assert_redirected_to root_path
+    follow_redirect!
+    assert_includes response.body, "expired"
+  end
+
+  # Issue #66. A download_id owned by a different session must be indistinguishable from one
+  # that never existed at all -- otherwise the response itself (status, redirect target, whether
+  # the body carries PDF bytes or the specific failure text) tells an attacker the id is real.
+  # Non-vacuous: run against the pre-#66 #show and confirm this fails there (the ready/failed
+  # branches 404 or leak the error text, rather than matching the nonexistent-id baseline).
+  test "an in-progress, ready, or failed download owned by a different session is indistinguishable from a nonexistent one" do
+    resume = upload_resume
+
+    post resume_downloads_path(resume), params: { job_description_text: "We need a Ruby engineer." }
+    in_progress_id = Resume::PdfRequest.sole.download_id
+
+    ready_id = SecureRandom.uuid
+    Rails.cache.write(
+      Resume::OptimizedPdfJob.cache_key(ready_id),
+      { resume_id: resume.id, bytes: "%PDF-1.4 fake bytes" }
+    )
+
+    failed_id = SecureRandom.uuid
+    Rails.cache.write(
+      Resume::OptimizedPdfJob.cache_key(failed_id),
+      { resume_id: resume.id, error: "Chinese, Japanese, or Korean characters aren't supported yet." }
+    )
+
+    reset!
+
+    get download_path(SecureRandom.uuid)
+    baseline_status = response.status
+    baseline_location = response.headers["Location"]
+
+    [ in_progress_id, ready_id, failed_id ].each do |download_id|
+      reset!
+      get download_path(download_id)
+
+      assert_equal baseline_status, response.status, "status for #{download_id} should match the nonexistent-id baseline"
+      assert_equal baseline_location, response.headers["Location"], "redirect target for #{download_id} should match the nonexistent-id baseline"
+      follow_redirect!
+      assert_includes response.body, "expired"
+      assert_not_includes response.body, "%PDF"
+      assert_not_includes response.body, "Chinese, Japanese, or Korean characters"
+    end
   end
 
   private

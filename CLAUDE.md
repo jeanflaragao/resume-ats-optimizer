@@ -383,8 +383,9 @@ Otherwise standard Rails 8 conventions.
   writes `job_description_text` to an encrypted
   `Resume::PdfRequest`, enqueues `Resume::OptimizedPdfJob.perform_later(resume_id:,
   pdf_request_id:, download_id:)` — **the text itself is never a job argument** (issue #76,
-  ADR-0022) — and renders a status page subscribed via
-  `turbo_stream_from`. `resume_id`/`download_id` stay in the signature because `record_failure`
+  ADR-0022) — then **redirects** to `download_path(download_id)` (ADR-0029) rather than rendering
+  in place, so the address bar carries `download_id` from the moment the job is enqueued and a
+  refresh has something to reconstruct from. `resume_id`/`download_id` stay in the signature because `record_failure`
   needs them when the record is gone; a missing request broadcasts `EXPIRED_REQUEST_MESSAGE`
   rather than hanging the page. The job runs `Resume::CachedOptimization` (`context: :download`) →
   `Resume::Pdf` — within `CACHE_TTL` of the preview this **reuses** the preview's rewrites rather
@@ -397,9 +398,18 @@ Otherwise standard Rails 8 conventions.
   connect — see [issue #72](https://github.com/jeanflaragao/resume-ats-optimizer/issues/72) for
   revisiting this properly. A **failed** job also writes `{ resume_id:, error: }` under the same
   cache key, so `#ready` can tell "failed" from "still running" — without it a lost failure
-  broadcast left the page on "Generating…" forever (ADR-0018). `show` re-verifies ownership via `find_owned_resume!` before
-  `send_data`-ing the bytes. `test/system/resume_downloads_test.rb` is the repo's first system
-  test, and what caught the ADR-0010/ADR-0014 Turbo Drive gap.
+  broadcast left the page on "Generating…" forever (ADR-0018). `show` is the single, unified,
+  ownership-gated entry point for every state a `download_id` can be in — in progress (a
+  `Resume::PdfRequest` still exists, nothing cached yet — renders `downloads/pending`, the same
+  template `#ready`'s Stimulus fallback and the live broadcast both target), ready (`send_data`s
+  the cached bytes), failed (redirects with the cached error), or unknown/expired (neither found).
+  `find_owned_resume!` is called exactly once per request, and a `RecordNotFound` from it is
+  rescued locally into the *same* "expired" redirect as a nonexistent `download_id` — a deliberate,
+  one-method departure from the app's usual let-404-bubble convention, because a `download_id`
+  belonging to a different session must be indistinguishable from one that never existed
+  (ADR-0029). `test/system/resume_downloads_test.rb` is the repo's first system test, what caught
+  the ADR-0010/ADR-0014 Turbo Drive gap, and now also covers a mid-download page refresh (issue
+  #66).
 - **`config/recurring.yml`**: production-only Solid Queue schedule — clears finished Solid Queue
   jobs hourly, runs `Resume::PdfRequest.purge_stale!` every 5 minutes,
   `Usage::Counter.purge_stale!` daily (nothing here is time-critical: no user content, and

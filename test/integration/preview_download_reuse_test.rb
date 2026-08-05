@@ -181,7 +181,9 @@ class PreviewDownloadReuseTest < ActionDispatch::IntegrationTest
     perform_enqueued_jobs do
       post resume_downloads_path(@resume), params: { job_description_text: job_description_text }
     end
-    assert_response :success
+    # Issue #66/ADR-0029: #create now redirects to the addressable /downloads/:id
+    # rather than rendering in place.
+    assert_response :redirect
   end
 
   def previewed_bullets
