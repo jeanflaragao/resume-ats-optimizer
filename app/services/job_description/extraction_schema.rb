@@ -17,7 +17,13 @@ class JobDescription::ExtractionSchema < RubyLLM::Schema
   # Optional rather than nullable-by-union: RubyLLM::Schema's `required: false`
   # already omits the key from the JSON Schema's `required` list, which is how
   # `title` above expresses the same thing.
-  integer :years_experience_min, required: false, minimum: 0,
+  #
+  # No `minimum: 0` constraint here even though the value can never sensibly be
+  # negative: the provider's structured-output validation rejects `minimum` on
+  # an integer property outright (HTTP 400), which made this schema fail on
+  # every real request. Enforcing non-negativity, if ever needed, has to happen
+  # after the response comes back, not in the schema sent to the API.
+  integer :years_experience_min, required: false,
     description: "The minimum number of years of experience the posting explicitly requires. Omit unless the posting states a number."
 
   array :responsibilities, of: :string,
