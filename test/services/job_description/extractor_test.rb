@@ -113,4 +113,16 @@ class JobDescription::ExtractorTest < ActiveSupport::TestCase
     refute_includes schema[:required], :years_experience_min
     refute_includes schema[:required], :title
   end
+
+  # The provider's structured-output validation rejects a `minimum` keyword on
+  # an integer property with HTTP 400 ("property 'minimum' is not supported"),
+  # which made every real "Check match" request fail. Not something a
+  # FakeChat-based test can catch on its own, since FakeChat never validates
+  # the schema the way the real API does — so this pins the one property of
+  # the generated schema that mattered: no `minimum` key, at all.
+  test "the schema does not constrain years_experience_min with a minimum, which the provider rejects" do
+    schema = JobDescription::ExtractionSchema.new.to_json_schema[:schema]
+
+    refute schema[:properties][:years_experience_min].key?(:minimum)
+  end
 end
