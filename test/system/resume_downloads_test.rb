@@ -43,6 +43,15 @@ class ResumeDownloadsTest < ApplicationSystemTestCase
     assert_text "Generating your optimized resume PDF"
     assert_selector "turbo-cable-stream-source", visible: :all
 
+    # Issue #66: the whole point of redirecting to /downloads/:id on enqueue is that a
+    # refresh here has real server-side state to reconstruct from, instead of losing the
+    # in-flight download_id the way an in-place turbo_stream swap did.
+    page.refresh
+
+    assert_text "Preparing your download"
+    assert_text "Generating your optimized resume PDF"
+    assert_selector "turbo-cable-stream-source", visible: :all
+
     # This is the one system test that exercises every page CSP touches (upload,
     # match results, preview, download) in a single real-browser run (issue #60).
     assert_no_csp_violations!

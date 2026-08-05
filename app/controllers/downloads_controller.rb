@@ -89,8 +89,13 @@ class DownloadsController < ApplicationController
         pdf_request_id: pdf_request.id,
         download_id: @download_id
       )
-      template = "downloads/create"
-      status = :ok
+
+      # Issue #66: redirect rather than render, so the address bar carries
+      # download_id from the moment the job is enqueued. A refresh is then a
+      # real GET #show can reconstruct state from, instead of a turbo_stream
+      # swap that leaves no trace once the page reloads. No respond_to/format
+      # branching needed here -- a 3xx has no body to content-negotiate.
+      return redirect_to download_path(@download_id)
     end
 
     respond_to do |format|
@@ -104,17 +109,42 @@ class DownloadsController < ApplicationController
     end
   end
 
+  # Issue #66: the single, ownership-gated entry point for every state a
+  # download_id can be in -- in progress (a Resume::PdfRequest still exists,
+  # nothing cached yet), ready (cached bytes), failed (cached error), or
+  # unknown/expired (neither). #create now redirects here immediately on
+  # enqueue, so this also has to be reachable well before the job finishes.
   def show
     cached = Rails.cache.read(Resume::OptimizedPdfJob.cache_key(params[:id]))
+    pdf_request = Resume::PdfRequest.find_by(download_id: params[:id]) if cached.nil?
+    resume_id = cached&.dig(:resume_id) || pdf_request&.resume_id
+    resume = resume_id && find_owned_resume!(resume_id)
 
-    if cached.nil? || cached[:bytes].blank?
-      flash[:alert] = cached&.dig(:error) || "That download link has expired. Please generate a new one."
+    if resume.nil?
+      flash[:alert] = "That download link has expired. Please generate a new one."
       return redirect_to root_path
     end
 
-    resume = find_owned_resume!(cached[:resume_id])
-    send_data cached[:bytes], filename: "#{resume.name.presence || 'resume'}.pdf",
-      type: "application/pdf", disposition: "attachment"
+    if cached && cached[:bytes].present?
+      send_data cached[:bytes], filename: "#{resume.name.presence || 'resume'}.pdf",
+        type: "application/pdf", disposition: "attachment"
+    elsif cached
+      flash[:alert] = cached[:error] || Resume::OptimizedPdfJob::GENERIC_FAILURE_MESSAGE
+      redirect_to root_path
+    else
+      render "downloads/pending", formats: [ :html ], locals: { download_id: params[:id] }
+    end
+  rescue ActiveRecord::RecordNotFound
+    # A download_id owned by a different session must be indistinguishable
+    # from one that never existed -- otherwise the response itself (404 here
+    # vs. the redirect above) tells a session holding someone else's id that
+    # the id is real. Every other find_owned_resume! call site deliberately
+    # lets this fall through to Rails' default 404 (see ApplicationController);
+    # this is a one-method exception, not a change to that convention, because
+    # #show is the one place download_id -- now a real, copyable URL since the
+    # #create redirect above -- can be probed directly.
+    flash[:alert] = "That download link has expired. Please generate a new one."
+    redirect_to root_path
   end
 
   private

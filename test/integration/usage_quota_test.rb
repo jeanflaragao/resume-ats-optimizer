@@ -72,7 +72,7 @@ class UsageQuotaTest < ActionDispatch::IntegrationTest
     ENV["RATE_LIMIT_PDF_GENERATION_PER_DAY"] = "1"
     resume = upload_resume
     post resume_downloads_path(resume), params: { job_description_text: "We need a Ruby engineer." }
-    assert_response :success
+    assert_response :redirect
 
     assert_no_enqueued_jobs only: Resume::OptimizedPdfJob do
       assert_no_difference -> { Resume::PdfRequest.count } do
