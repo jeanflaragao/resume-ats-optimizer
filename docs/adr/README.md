@@ -38,3 +38,4 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0028 | Deploy to Railway now; keep Kamal as the documented path to AWS later | Accepted | [0028-deploy-to-railway-not-kamal.md](0028-deploy-to-railway-not-kamal.md) |
 | 0029 | Redirect `DownloadsController#create` to an addressable `/downloads/:id` | Accepted | [0029-redirect-downloads-to-an-addressable-url.md](0029-redirect-downloads-to-an-addressable-url.md) |
 | 0030 | Converge `DownloadsController#ready` on `204 No Content` for an owner mismatch | Accepted | [0030-converge-ready-on-no-content-for-owner-mismatch.md](0030-converge-ready-on-no-content-for-owner-mismatch.md) |
+| 0031 | Persist discarded resume data as pending items, and never prefill a possibly-fabricated one | Accepted | [0031-surface-discarded-resume-data.md](0031-surface-discarded-resume-data.md) |
