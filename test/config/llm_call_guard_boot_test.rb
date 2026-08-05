@@ -59,8 +59,25 @@ class LlmCallGuardBootTest < ActiveSupport::TestCase
     refute_match(/BOOTED-OK/, output, "stub mode in production must be opted into, not defaulted into")
   end
 
-  # The counterweight: without this, both assertions above would pass against an
-  # app that could not boot production for some entirely unrelated reason.
+  # LlmCallGuard.validate_api_key! exists specifically for this (ADR-0020), but
+  # until now nothing asserted it fires -- config/initializers/ruby_llm.rb's own
+  # ANTHROPIC_API_KEY read is a bare ENV[] with no validation of its own, and is
+  # safe only because this check has already had the chance to abort boot first
+  # (registration order, both to_prepare). Confirmed manually before this test
+  # existed: booting with real calls on and the key blanked raised
+  # LlmCallGuard::ConfigurationError as expected -- this pins that behaviour so
+  # it stays proven rather than merely observed once.
+  test "a production boot with real calls enabled but no API key refuses to start" do
+    output = boot_production("ENABLE_REAL_LLM_CALLS" => "true", "MAX_LLM_CALLS_PER_DAY" => "200")
+
+    assert_match(/ConfigurationError/, output)
+    assert_match(/ANTHROPIC_API_KEY is not set/, output)
+    refute_match(/BOOTED-OK/, output, "real LLM calls must not run with no key configured")
+  end
+
+  # The counterweight: without this, none of the assertions above would pass
+  # against an app that could not boot production for some entirely unrelated
+  # reason.
   test "a production boot with everything configured starts normally" do
     output = boot_production(
       "ENABLE_REAL_LLM_CALLS" => "true",

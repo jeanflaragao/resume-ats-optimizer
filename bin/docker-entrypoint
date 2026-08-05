@@ -6,9 +6,60 @@ if [ -z "${LD_PRELOAD+x}" ]; then
     export LD_PRELOAD
 fi
 
-# If running the rails server then create or migrate existing database
-if [ "${@: -2:1}" == "./bin/rails" ] && [ "${@: -1:1}" == "server" ]; then
-  ./bin/rails db:prepare
+# Thruster (bin/thrust, the web role's CMD) listens on HTTP_PORT, default 80 --
+# it does not read PORT itself, only sets PORT for the Puma process it launches
+# internally (see the thruster gem's own README). Railway (issue #48) injects a
+# real PORT env var into the running container at deploy time, but only at
+# runtime -- its dashboard variable-reference syntax can't resolve it ahead of
+# time -- so the mapping has to happen here, not in Railway's config. A no-op
+# everywhere PORT isn't set (local docker run, a future Kamal deploy).
+if [ -n "${PORT+x}" ]; then
+  export HTTP_PORT="${PORT}"
+fi
+
+# Both the web role (./bin/rails server) and the worker role (bin/jobs, the
+# Solid Queue supervisor) need the database provisioned before they can do
+# anything -- the worker claims jobs from the queue database, which doesn't
+# exist until db:prepare has run (issue #48). If both roles start together on
+# a genuinely fresh deploy, a plain "run db:prepare in each" races in two
+# different ways, both reproduced locally against a real Postgres:
+#
+#   (a) both processes try to CREATE DATABASE at once and the loser gets a
+#       real PG::UniqueViolation, exiting non-zero.
+#   (b) even past that, one process's db:prepare can see the database the
+#       other just created and conclude there is nothing to migrate
+#       (migrations_paths points at directories that don't exist, so there is
+#       never anything pending) WITHOUT the other process's schema load
+#       having finished yet -- db:prepare reports success either way, so a
+#       plain retry-on-failure never even triggers, and the loser execs
+#       bin/jobs against a database that exists but has no tables yet,
+#       raising PG::UndefinedTable on solid_queue_processes.
+#
+# What actually closes both: a Postgres advisory lock held for the entire
+# db:prepare call, so the two roles' provisioning never actually overlaps --
+# taken against the always-present `postgres` maintenance database, since
+# none of this app's own databases are guaranteed to exist yet at the point
+# the lock needs to be acquired.
+last_arg="${@: -1}"
+if { [ "${@: -2:1}" == "./bin/rails" ] && [ "${last_arg}" == "server" ]; } || [ "${last_arg}" == "bin/jobs" ]; then
+  db_host="${DB_HOST:-localhost}"
+  db_port="${DB_PORT:-5432}"
+  export PGPASSWORD="${RESUME_ATS_OPTIMIZER_DATABASE_PASSWORD}"
+
+  prepare_status_file=$(mktemp)
+  psql -h "${db_host}" -p "${db_port}" -U resume_ats_optimizer -d postgres -v ON_ERROR_STOP=1 <<SQL
+SELECT pg_advisory_lock(487225533);
+\! ./bin/rails db:prepare; echo \$? > ${prepare_status_file}
+SELECT pg_advisory_unlock(487225533);
+SQL
+  prepare_status=$(cat "${prepare_status_file}")
+  rm -f "${prepare_status_file}"
+  unset PGPASSWORD
+
+  if [ "${prepare_status}" != "0" ]; then
+    echo "db:prepare failed (exit ${prepare_status})" >&2
+    exit 1
+  fi
 fi
 
 exec "${@}"

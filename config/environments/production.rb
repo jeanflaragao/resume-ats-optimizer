@@ -68,8 +68,11 @@ Rails.application.configure do
   # Set this to true and configure the email server for immediate delivery to raise delivery errors.
   # config.action_mailer.raise_delivery_errors = false
 
-  # Set host to be used by links generated in mailer templates.
-  config.action_mailer.default_url_options = { host: "example.com" }
+  # Set host to be used by links generated in mailer templates. No mailer exists
+  # yet, so this is forward-looking hygiene, not an active fix -- but wired to
+  # the same RAILWAY_PUBLIC_DOMAIN below rather than left as the example.com
+  # placeholder, so it doesn't quietly stay wrong the day a mailer is added.
+  config.action_mailer.default_url_options = { host: ENV.fetch("RAILWAY_PUBLIC_DOMAIN", "example.com") }
 
   # Specify outgoing SMTP server. Remember to add smtp/* credentials via rails credentials:edit.
   # config.action_mailer.smtp_settings = {
@@ -90,12 +93,17 @@ Rails.application.configure do
   # Only use :id for inspections in production.
   config.active_record.attributes_for_inspect = [ :id ]
 
-  # Enable DNS rebinding protection and other `Host` header attacks.
-  # config.hosts = [
-  #   "example.com",     # Allow requests from example.com
-  #   /.*\.example\.com/ # Allow requests from subdomains like `www.example.com`
-  # ]
-  #
-  # Skip DNS rebinding protection for the default health check endpoint.
-  # config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
+  # Enable DNS rebinding protection and other `Host` header attacks. Decided
+  # deliberately rather than left unset (issue #48): RAILWAY_PUBLIC_DOMAIN is
+  # Railway's own runtime env var for this service's externally-reachable
+  # domain (the auto-generated *.up.railway.app one, or a custom domain once
+  # attached) -- present at container runtime, not at image-build time, so
+  # config.hosts is an empty array (allow nothing) during the Docker build's
+  # asset-precompile boot, which never serves a request and so never needs it.
+  config.hosts = [ ENV.fetch("RAILWAY_PUBLIC_DOMAIN", nil) ].compact
+
+  # Skip DNS rebinding protection for the default health check endpoint --
+  # Railway's own health checker may not present a Host header matching
+  # RAILWAY_PUBLIC_DOMAIN.
+  config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
 end
