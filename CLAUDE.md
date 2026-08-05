@@ -407,9 +407,11 @@ Otherwise standard Rails 8 conventions.
   rescued locally into the *same* "expired" redirect as a nonexistent `download_id` — a deliberate,
   one-method departure from the app's usual let-404-bubble convention, because a `download_id`
   belonging to a different session must be indistinguishable from one that never existed
-  (ADR-0029). `test/system/resume_downloads_test.rb` is the repo's first system test, what caught
-  the ADR-0010/ADR-0014 Turbo Drive gap, and now also covers a mid-download page refresh (issue
-  #66).
+  (ADR-0029). `#ready` carries the same property for its own owner-mismatch case, converging on
+  `204` (matching its existing not-ready-yet response) rather than `#show`'s redirect, since
+  `#ready` has no page to redirect (issue #114, ADR-0030). `test/system/resume_downloads_test.rb`
+  is the repo's first system test, what caught the ADR-0010/ADR-0014 Turbo Drive gap, and now also
+  covers a mid-download page refresh (issue #66).
 - **`config/recurring.yml`**: production-only Solid Queue schedule — clears finished Solid Queue
   jobs hourly, runs `Resume::PdfRequest.purge_stale!` every 5 minutes,
   `Usage::Counter.purge_stale!` daily (nothing here is time-critical: no user content, and

@@ -3,6 +3,12 @@ require "test_helper"
 class ResumeDownloadsTest < ActionDispatch::IntegrationTest
   include ActiveJob::TestHelper
 
+  # Headers that legitimately vary per request regardless of any ownership leak -- excluded
+  # from the issue #114 indistinguishability comparison below. response.headers.to_h keys are
+  # lowercase (confirmed empirically, not assumed). content-security-policy carries a
+  # per-request nonce (issue #60), unrelated to any leak here.
+  VOLATILE_HEADERS = %w[set-cookie date x-request-id x-runtime content-security-policy].freeze
+
   setup do
     # Test env's cache_store is :null_store (see config/environments/test.rb),
     # which no-ops read/write -- swap in a real store, same fix
@@ -185,7 +191,10 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "Chinese, Japanese, or Korean characters"
   end
 
-  test "#ready 404s a finished download that belongs to a different session" do
+  # Issue #114: converged onto :no_content rather than 404 -- see the indistinguishability
+  # test below and ADR-0030 for why. A deliberate change from this test's pre-#114
+  # expectation.
+  test "#ready returns no content, not the ready partial, for a finished download that belongs to a different session" do
     resume = upload_resume
     download_id = SecureRandom.uuid
     Rails.cache.write(
@@ -197,7 +206,48 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
 
     get ready_download_path(download_id)
 
-    assert_response :not_found
+    assert_response :no_content
+    assert_empty response.body
+  end
+
+  # Issue #114: the same oracle #show closed in issue #66/PR #115. A download_id owned by a
+  # different session must be indistinguishable from one that never existed -- otherwise the
+  # response itself (404 here vs. 204 for a nonexistent id) tells the caller the id is real.
+  # Non-vacuous: run against the pre-#114 #ready and confirm this fails there (404 vs 204)
+  # before the fix, then passes after.
+  #
+  # Headers are compared too, not just status/body, minus the ones that legitimately vary per
+  # request regardless of any leak (session cookie, timestamp, request id, runtime).
+  test "a ready or failed download owned by a different session is indistinguishable from a nonexistent one via #ready" do
+    resume = upload_resume
+
+    ready_id = SecureRandom.uuid
+    Rails.cache.write(
+      Resume::OptimizedPdfJob.cache_key(ready_id),
+      { resume_id: resume.id, bytes: "%PDF-1.4 fake bytes" }
+    )
+
+    failed_id = SecureRandom.uuid
+    Rails.cache.write(
+      Resume::OptimizedPdfJob.cache_key(failed_id),
+      { resume_id: resume.id, error: "Chinese, Japanese, or Korean characters aren't supported yet." }
+    )
+
+    reset!
+
+    get ready_download_path(SecureRandom.uuid)
+    baseline_status = response.status
+    baseline_body = response.body
+    baseline_headers = response.headers.to_h.except(*VOLATILE_HEADERS)
+
+    [ ready_id, failed_id ].each do |download_id|
+      get ready_download_path(download_id)
+
+      assert_equal baseline_status, response.status, "status for #{download_id} should match the nonexistent-id baseline"
+      assert_equal baseline_body, response.body, "body for #{download_id} should match the nonexistent-id baseline"
+      assert_equal baseline_headers, response.headers.to_h.except(*VOLATILE_HEADERS),
+        "headers for #{download_id} should match the nonexistent-id baseline"
+    end
   end
 
   test "an expired or missing download_id redirects with an alert instead of erroring" do
