@@ -5,6 +5,8 @@ require "test_helper"
 # Deleting the render line from app/views/layouts/application.html.erb leaves
 # every predicate test passing.
 class StubModeBannerTest < ActionDispatch::IntegrationTest
+  setup { sign_in_as(users(:jordan)) }
+
   # Stub-mode-outside-local is unreachable in the test environment by design
   # (Rails.env.local?), so the predicate is stubbed rather than the environment
   # faked. define_singleton_method rather than Minitest::Mock, matching

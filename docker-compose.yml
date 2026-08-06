@@ -23,6 +23,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       ENABLE_REAL_LLM_CALLS: ${ENABLE_REAL_LLM_CALLS:-false}
       MAX_LLM_CALLS_PER_DAY: ${MAX_LLM_CALLS_PER_DAY:-10}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
     volumes:
       - .:/rails
       - bundle_data:/usr/local/bundle

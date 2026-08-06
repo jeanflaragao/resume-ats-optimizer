@@ -14,7 +14,7 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0004 | Use Prawn instead of Grover/Puppeteer for PDF generation | Accepted | [0004-prawn-for-pdf-generation.md](0004-prawn-for-pdf-generation.md) |
 | 0005 | Support two selectable resume-extraction strategies (LLM + deterministic) | Accepted | [0005-dual-resume-extraction-strategy.md](0005-dual-resume-extraction-strategy.md) |
 | 0006 | Keep comparison/scoring logic strictly deterministic and verify all LLM output with FidelityCheck | Accepted | [0006-deterministic-llm-separation-and-fidelitycheck.md](0006-deterministic-llm-separation-and-fidelitycheck.md) |
-| 0007 | Use Rails 8's built-in auth generator (not Devise), with a temporary owner_token placeholder | Accepted | [0007-rails8-auth-and-owner-token-placeholder.md](0007-rails8-auth-and-owner-token-placeholder.md) |
+| 0007 | Use Rails 8's built-in auth generator (not Devise), with a temporary owner_token placeholder | Superseded by 0032 | [0007-rails8-auth-and-owner-token-placeholder.md](0007-rails8-auth-and-owner-token-placeholder.md) |
 | 0008 | Make the repository public to unlock branch protection and secret scanning | Accepted | [0008-public-repo-for-branch-protection.md](0008-public-repo-for-branch-protection.md) |
 | 0009 | Configure Dependabot for automatic version-update PRs, not just vulnerability alerts | Accepted | [0009-dependabot-automatic-version-prs.md](0009-dependabot-automatic-version-prs.md) |
 | 0010 | Accept `data: { turbo: false }` as a stopgap for POST-rendering controllers | Superseded by 0014 | [0010-turbo-drive-stopgap-data-turbo-false.md](0010-turbo-drive-stopgap-data-turbo-false.md) |
@@ -39,3 +39,4 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0029 | Redirect `DownloadsController#create` to an addressable `/downloads/:id` | Accepted | [0029-redirect-downloads-to-an-addressable-url.md](0029-redirect-downloads-to-an-addressable-url.md) |
 | 0030 | Converge `DownloadsController#ready` on `204 No Content` for an owner mismatch | Accepted | [0030-converge-ready-on-no-content-for-owner-mismatch.md](0030-converge-ready-on-no-content-for-owner-mismatch.md) |
 | 0031 | Persist discarded resume data as pending items, and never prefill a possibly-fabricated one | Accepted | [0031-surface-discarded-resume-data.md](0031-surface-discarded-resume-data.md) |
+| 0032 | Google OAuth authentication, superseding the Rails 8 auth generator plan | Accepted | [0032-google-oauth-authentication.md](0032-google-oauth-authentication.md) |

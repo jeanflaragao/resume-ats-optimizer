@@ -21,7 +21,13 @@ class UsageQuotaBootTest < ActiveSupport::TestCase
     "ENABLE_REAL_LLM_CALLS" => "true",
     "MAX_LLM_CALLS_PER_DAY" => "200",
     "ALLOW_STUB_LLM" => nil,
-    "ANTHROPIC_API_KEY" => "sk-ant-not-a-real-key"
+    "ANTHROPIC_API_KEY" => "sk-ant-not-a-real-key",
+    # Issue #120's Authentication::ConfigGuard loads before both this guard
+    # and LlmCallGuard's (alphabetically first) -- set here to valid values
+    # for the same reason the LLM vars above are, so every case below still
+    # gets past it to exercise Usage::Quota's own rule.
+    "GOOGLE_OAUTH_CLIENT_ID" => "test-client-id",
+    "GOOGLE_OAUTH_CLIENT_SECRET" => "test-client-secret"
   }.freeze
 
   QUOTA_ENV = Usage::Quota::ACTION_TYPES.to_h { |a| [ Usage::Quota.env_var_for(a), "200" ] }.freeze

@@ -1,6 +1,8 @@
 require "test_helper"
 
 class PendingItemFillsTest < ActionDispatch::IntegrationTest
+  setup { sign_in_as(users(:jordan)) }
+
   test "the show page renders a pending item, and it's gone from a fresh page load after being filled in" do
     resume = upload_resume_with_drops
 
@@ -148,10 +150,12 @@ class PendingItemFillsTest < ActionDispatch::IntegrationTest
     fake_id = resume.id + 1_000_000
 
     reset!
+    sign_in_as(users(:alex))
     post resume_pending_items_path(resume_id: fake_id), params: { pending_item: { scope: "resume", field: "name", value: "Someone Else" } }
     assert_response :not_found
 
     reset!
+    sign_in_as(users(:alex))
     post resume_pending_items_path(resume_id: resume.id), params: { pending_item: { scope: "resume", field: "name", value: "Someone Else" } }
     assert_response :not_found
   end

@@ -57,6 +57,21 @@ actually breaks if it's missing, not just "required."
 | `JOB_CONCURRENCY` | unset, or `2` on the worker service | Optional — defaults to `1` Solid Queue process. The worker now has its own service (not sharing resources with web), so `2` is a reasonable bump if the queue backs up; not required for the first deploy. |
 | `RAILWAY_PUBLIC_DOMAIN` | *(don't set — Railway provides this automatically)* | If the web service never gets a public domain assigned, this stays unset, `config.hosts` stays empty, and every request 403s. |
 | `PORT` | *(don't set — Railway injects this automatically)* | `bin/docker-entrypoint` maps it to Thruster's `HTTP_PORT`; without it Thruster falls back to port 80, which may not match what Railway routes to. |
+| `GOOGLE_OAUTH_CLIENT_ID` | from the Google Cloud Console OAuth client (see note below) | **Blocking, no default in production.** Refuses to boot without it (ADR-0032, `Authentication::ConfigGuard`). Since accounts are mandatory (issue #120), this isn't a degraded mode — nobody can sign in. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | same client, never commit this | Same. |
+
+**Setting up Google OAuth**: register **one** Google Cloud OAuth 2.0 Client (Web application
+type), and add **both** of these as Authorized redirect URIs on that single client — not two
+separate clients:
+- `http://localhost:3000/auth/google_oauth2/callback` (local dev)
+- `https://<the web service's RAILWAY_PUBLIC_DOMAIN>/auth/google_oauth2/callback` (production —
+  not knowable until the web service has a public domain, so this half of the registration
+  happens after/alongside the first deploy in step 4 below, not before it)
+
+Use the same `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET` pair in your local `.env` and in
+Railway's env vars — the code never branches on environment for the callback URL itself
+(`omniauth-google-oauth2` builds it from the incoming request's own host); only which redirect
+URIs are registered in Google Cloud Console differs.
 
 **Sizing `MAX_LLM_CALLS_PER_DAY` and the `RATE_LIMIT_*` values**: no production usage data exists
 yet (this is the first deploy), so these are inherited from the same values already used for

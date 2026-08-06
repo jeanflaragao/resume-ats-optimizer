@@ -24,7 +24,14 @@ class LlmCallGuardBootTest < ActiveSupport::TestCase
     "ENABLE_REAL_LLM_CALLS" => nil,
     "MAX_LLM_CALLS_PER_DAY" => nil,
     "ALLOW_STUB_LLM" => nil,
-    "ANTHROPIC_API_KEY" => nil
+    "ANTHROPIC_API_KEY" => nil,
+    # Issue #120 added a third boot check (config/initializers/
+    # authentication_config_guard.rb, ADR-0032) that loads BEFORE this one --
+    # initializers load alphabetically, "authentication_..." < "llm_...". Set
+    # here to valid values so every case below still exercises LlmCallGuard's
+    # own rule, not Authentication::ConfigGuard's.
+    "GOOGLE_OAUTH_CLIENT_ID" => "test-client-id",
+    "GOOGLE_OAUTH_CLIENT_SECRET" => "test-client-secret"
   }.freeze
 
   # Issue #22 added a second boot check (config/initializers/usage_quota.rb,

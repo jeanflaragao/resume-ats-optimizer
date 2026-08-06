@@ -25,6 +25,8 @@ class PreviewDownloadReuseTest < ActionDispatch::IntegrationTest
   ].freeze
 
   setup do
+    sign_in_as(users(:jordan))
+
     # Test env's cache_store is :null_store (see config/environments/test.rb),
     # which no-ops read/write -- swap in a real store, the same fix
     # test/services/llm_call_guard_test.rb and test/jobs/resume/

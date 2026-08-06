@@ -12,6 +12,7 @@ require "application_system_test_case"
 # renders the result.
 class UsageQuotaSystemTest < ApplicationSystemTestCase
   setup do
+    sign_in_as_in_browser(users(:jordan))
     @original_limit = ENV["RATE_LIMIT_REQUIREMENT_EXTRACTION_PER_DAY"]
     ENV["RATE_LIMIT_REQUIREMENT_EXTRACTION_PER_DAY"] = "1"
   end

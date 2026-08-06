@@ -10,6 +10,8 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
   VOLATILE_HEADERS = %w[set-cookie date x-request-id x-runtime content-security-policy].freeze
 
   setup do
+    sign_in_as(users(:jordan))
+
     # Test env's cache_store is :null_store (see config/environments/test.rb),
     # which no-ops read/write -- swap in a real store, same fix
     # test/services/llm_call_guard_test.rb already uses for this exact problem.
@@ -97,6 +99,7 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     resume = upload_resume
 
     reset!
+    sign_in_as(users(:alex))
 
     assert_no_enqueued_jobs do
       post resume_downloads_path(resume), params: { job_description_text: "We need a Ruby engineer." }
@@ -203,6 +206,7 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     )
 
     reset!
+    sign_in_as(users(:alex))
 
     get ready_download_path(download_id)
 
@@ -234,6 +238,7 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     )
 
     reset!
+    sign_in_as(users(:alex))
 
     get ready_download_path(SecureRandom.uuid)
     baseline_status = response.status
@@ -272,6 +277,7 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     )
 
     reset!
+    sign_in_as(users(:alex))
 
     get download_path(download_id)
 
@@ -304,6 +310,7 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
     )
 
     reset!
+    sign_in_as(users(:alex))
 
     get download_path(SecureRandom.uuid)
     baseline_status = response.status
@@ -311,6 +318,7 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
 
     [ in_progress_id, ready_id, failed_id ].each do |download_id|
       reset!
+      sign_in_as(users(:alex))
       get download_path(download_id)
 
       assert_equal baseline_status, response.status, "status for #{download_id} should match the nonexistent-id baseline"

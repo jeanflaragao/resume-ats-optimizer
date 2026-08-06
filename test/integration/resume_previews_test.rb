@@ -1,6 +1,8 @@
 require "test_helper"
 
 class ResumePreviewsTest < ActionDispatch::IntegrationTest
+  setup { sign_in_as(users(:jordan)) }
+
   test "blank job description text re-renders the resume's show page with an error" do
     resume = upload_resume
 
@@ -116,6 +118,7 @@ class ResumePreviewsTest < ActionDispatch::IntegrationTest
     resume = upload_resume
 
     reset!
+    sign_in_as(users(:alex))
 
     post resume_preview_path(resume), params: { job_description_text: "We need a Ruby engineer." }
 
