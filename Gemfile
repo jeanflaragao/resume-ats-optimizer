@@ -57,6 +57,13 @@ gem "prawn"
 # Extract text from LinkedIn PDF data exports
 gem "pdf-reader"
 
+# OAuth 2.0 client framework, used for Google sign-in
+gem "omniauth"
+# Google OAuth2 strategy for omniauth
+gem "omniauth-google-oauth2"
+# CSRF protection for OmniAuth's request phase (OmniAuth 2.x no longer includes this itself)
+gem "omniauth-rails_csrf_protection"
+
 group :development, :test do
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"

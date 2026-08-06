@@ -22,6 +22,7 @@ module ActiveSupport
     fixtures :all
 
     include RecordingLlm
+    include AuthenticationTestHelper
 
     # Add more helper methods to be used by all tests here...
   end

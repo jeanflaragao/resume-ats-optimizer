@@ -1,6 +1,8 @@
 require "test_helper"
 
 class ResumeUploadsTest < ActionDispatch::IntegrationTest
+  setup { sign_in_as(users(:jordan)) }
+
   test "uploading a valid file persists a Resume and redirects to its confirmation page" do
     # LlmCallGuard defaults to stub mode in test (ENABLE_REAL_LLM_CALLS unset), whose
     # StubChat returns this exact name/email — include them in the source file so
@@ -223,6 +225,7 @@ class ResumeUploadsTest < ActionDispatch::IntegrationTest
     resume = Resume.last
 
     reset!
+    sign_in_as(users(:alex))
 
     get resume_path(resume)
     assert_response :not_found

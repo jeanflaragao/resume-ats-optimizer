@@ -1,6 +1,8 @@
 require "application_system_test_case"
 
 class ResumeDownloadsTest < ApplicationSystemTestCase
+  setup { sign_in_as_in_browser(users(:jordan)) }
+
   # Deliberately not waiting for the job to finish/broadcast here (system
   # tests run under the :test ActiveJob adapter, which queues without
   # executing) -- that path is already covered precisely, without real-browser

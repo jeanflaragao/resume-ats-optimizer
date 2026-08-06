@@ -9,6 +9,7 @@ require "test_helper"
 # exists to prevent -- so the message alone is not evidence of anything.
 class UsageQuotaTest < ActionDispatch::IntegrationTest
   setup do
+    sign_in_as(users(:jordan))
     @original_env = Usage::Quota::ACTION_TYPES.to_h { |a| [ Usage::Quota.env_var_for(a), ENV[Usage::Quota.env_var_for(a)] ] }
   end
 
@@ -150,6 +151,7 @@ class UsageQuotaTest < ActionDispatch::IntegrationTest
     ENV["RATE_LIMIT_RESUME_EXTRACTION_PER_DAY"] = "1"
 
     exhausted = open_session
+    sign_in_as(users(:jordan), on: exhausted)
     exhausted.post resumes_path, params: { file: upload_fixture }
     assert_no_difference -> { Resume.count } do
       exhausted.post resumes_path, params: { file: upload_fixture }
@@ -157,6 +159,7 @@ class UsageQuotaTest < ActionDispatch::IntegrationTest
     assert_includes exhausted.flash[:alert], "daily limit"
 
     fresh = open_session
+    sign_in_as(users(:alex), on: fresh)
     assert_difference -> { Resume.count }, 1 do
       fresh.post resumes_path, params: { file: upload_fixture }
     end

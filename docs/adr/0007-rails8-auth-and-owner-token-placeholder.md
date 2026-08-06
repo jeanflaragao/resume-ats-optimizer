@@ -1,7 +1,9 @@
 # ADR-0007: Use Rails 8's built-in auth generator (not Devise), with a temporary owner_token placeholder
 
 ## Status
-Accepted
+Superseded by [ADR-0032](0032-google-oauth-authentication.md) — issue #120 replaced the planned
+Rails-8-generator auth with Google OAuth, and the `owner_token` placeholder with a real signed-in
+`User`; see ADR-0032 for the OAuth decision and #121 for the `owner_token` migration this enables.
 
 ## Context
 The product needs to scope resumes to the person who uploaded them (multi-user, hosted). Real
