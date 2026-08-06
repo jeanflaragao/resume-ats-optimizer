@@ -28,4 +28,42 @@ class WordBoundaryMatchableTest < ActiveSupport::TestCase
   test "a real term still fails to match when absent from the text" do
     assert_not Matcher.word_boundary_match?("python", "I use Ruby daily")
   end
+
+  # Issue #126: pdftotext (Resume::Extractors::Llm#source_text) emits NFD
+  # (decomposed) Unicode for accented characters; Claude's API returns NFC
+  # (precomposed). Same rendered character, different codepoint sequence --
+  # an accented letter is one codepoint under NFC, or a base letter plus a
+  # combining mark (two codepoints) under NFD. A literal match must not
+  # depend on which form either side happens to use. Both forms are produced
+  # here with an explicit unicode_normalize call rather than trusted from the
+  # literal's on-disk encoding, and the codepoint-count assertions pin that
+  # the two forms really are different byte sequences, so the test provably
+  # exercises what it claims regardless of editor/tooling.
+  test "an NFC term matches NFD text containing the same accented character" do
+    name_with_tilde = [ 0x4a, 0x6f, 0x61, 0x6f ].pack("U*") + [ 0xe3 ].pack("U") # "Joa" + precomposed a-with-tilde
+    nfc_term = name_with_tilde.unicode_normalize(:nfc)
+    nfd_text = ("Contact: " + name_with_tilde + " Silva").unicode_normalize(:nfd)
+
+    assert_equal 5, nfc_term.length, "expected the accented letter as one precomposed codepoint"
+    assert_includes nfd_text.codepoints, 0x0303, "expected a decomposed combining tilde in the text"
+    assert Matcher.word_boundary_match?(nfc_term, nfd_text)
+  end
+
+  test "an NFD term matches NFC text containing the same accented character" do
+    name_with_tilde = [ 0x4a, 0x6f, 0x61, 0x6f ].pack("U*") + [ 0xe3 ].pack("U")
+    nfd_term = name_with_tilde.unicode_normalize(:nfd)
+    nfc_text = ("Contact: " + name_with_tilde + " Silva").unicode_normalize(:nfc)
+
+    assert_includes nfd_term.codepoints, 0x0303, "expected a decomposed combining tilde in the term"
+    assert_not_includes nfc_text.codepoints, 0x0303, "expected no combining tilde once the text is NFC"
+    assert Matcher.word_boundary_match?(nfd_term, nfc_text)
+  end
+
+  # The normalization must not paper over an actually-missing base character
+  # -- that was the other half of issue #126's original corruption (a base
+  # letter dropped outright, not just re-encoded), and no Unicode
+  # normalization can recover a character that was never there.
+  test "normalization does not make a genuinely different word match" do
+    assert_not Matcher.word_boundary_match?("Vasconcelos", "Vasconelos")
+  end
 end

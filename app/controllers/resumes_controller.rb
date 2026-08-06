@@ -39,6 +39,7 @@ class ResumesController < ApplicationController
     flash.now[:alert] = "We couldn't process that file: #{e.message}"
     render :new, status: :unprocessable_entity
   rescue PDF::Reader::MalformedPDFError, PDF::Reader::UnsupportedFeatureError,
+         Resume::Extractors::Llm::PdfExtractionError,
          Resume::Extractors::JsonMapper::InvalidJsonError => e
     # Log class only — PDF parser messages may include binary PDF bytes; JSON
     # parser messages include the temp file path. Neither is PII, but neither

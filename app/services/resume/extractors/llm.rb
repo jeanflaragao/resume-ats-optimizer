@@ -1,4 +1,4 @@
-require "pdf/reader"
+require "open3"
 
 # Sends the resume file directly to Claude for extraction, then verifies the
 # result against the source document's own text before returning it —
@@ -36,17 +36,31 @@ require "pdf/reader"
 # as something to accept. Resume::Import persists these onto the created
 # Resume/Experience/Education rows so resumes/show.html.erb can surface them.
 #
-# Note: reading the file's raw text here (via pdf-reader, for PDFs) to verify
-# against reintroduces pdf-reader's documented layout-reliability ceiling
-# (see Extractors::PdfRegex) as a verification floor under this LLM path —
-# Claude's native PDF understanding can legitimately diverge from pdf-reader's
-# naive text-layer reading (column order, hyphenation, bullet transcription)
-# with zero hallucination involved. Expect some false-positive drops on PDFs
-# from this alone; JSON files don't have this problem (same raw text on both
-# sides).
+# Note: reading the file's raw text here (via pdftotext, for PDFs) to verify
+# against still sets a verification floor under this LLM path — Claude's native
+# PDF understanding can legitimately diverge from any text-layer reading (column
+# order, hyphenation, bullet transcription) with zero hallucination involved.
+# Expect some false-positive drops on PDFs from this alone; JSON files don't
+# have this problem (same raw text on both sides). Issue #126 replaced pdf-reader
+# with pdftotext specifically because pdf-reader's paint-order reading corrupted
+# accented characters (a real name's diacritic landing several characters away
+# from its base letter, sometimes displacing a base letter entirely) badly
+# enough to fail verbatim matching on correctly-extracted, correctly-spelled
+# names — not a layout ambiguity, a text-layer bug. pdftotext (poppler-utils,
+# no -layout flag — see #extract_pdf_text) fixed both the accent corruption and
+# a two-column-interleaving word-splitting issue pdf-reader also had.
 class Resume::Extractors::Llm
   include WordBoundaryMatchable
   include RedactedTokenHint
+
+  # Raised by #extract_pdf_text when pdftotext can't read the file — the
+  # pdftotext-based counterpart to PDF::Reader::MalformedPDFError, which
+  # ResumesController's rescue clause already maps to the same friendly
+  # "we couldn't read that file" flash. PdfRegex (a different extractor) still
+  # uses pdf-reader directly and can still raise the original PDF::Reader
+  # errors, so those stay in that rescue list too — this is additive, not a
+  # replacement.
+  class PdfExtractionError < StandardError; end
 
   BULLET_MIN_TOKEN_COVERAGE = 0.9
   SUMMARY_MIN_TOKEN_COVERAGE = 0.75
@@ -258,9 +272,30 @@ class Resume::Extractors::Llm
   def source_text
     @source_text ||= case File.extname(file_path).delete_prefix(".").downcase
     when "pdf"
-      PDF::Reader.new(file_path).pages.map(&:text).join("\n")
+      extract_pdf_text
     else
       File.read(file_path)
     end
+  end
+
+  # No -layout flag, deliberately: -layout preserves the PDF's column
+  # positions, which reintroduces the same class of corruption pdftotext was
+  # chosen to fix, just from a different cause — a two-column resume read
+  # row-by-row interleaves both columns onto one output line, splitting a word
+  # across the seam ("Ja-" / "nuary" from "January", straddling the column
+  # break). Default mode reads one column fully before the next, matching
+  # normal reading order and keeping words intact. Verified both modes
+  # directly against a real two-column CV before choosing this over -layout.
+  #
+  # Raises rather than falling back to a worse extraction on failure —
+  # poppler-utils is a required package in both Dockerfiles and CI (issue
+  # #126); a missing binary or a pdftotext failure is a deploy/environment
+  # bug that should be loud, not a reason to silently reintroduce the
+  # corruption this method exists to avoid.
+  def extract_pdf_text
+    stdout, status = Open3.capture2("pdftotext", file_path, "-")
+    raise PdfExtractionError, "pdftotext exited #{status.exitstatus} extracting #{file_path}" unless status.success?
+
+    stdout
   end
 end

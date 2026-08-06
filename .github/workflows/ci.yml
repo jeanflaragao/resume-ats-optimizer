@@ -68,7 +68,9 @@ jobs:
 
     steps:
       - name: Install packages
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y build-essential git libpq-dev libyaml-dev pkg-config google-chrome-stable
+        # poppler-utils: pdftotext, used by Resume::Extractors::Llm#source_text (issue #126) --
+        # this job runs directly on the runner, not the Dockerfile image, so it needs its own copy.
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y build-essential git libpq-dev libyaml-dev pkg-config google-chrome-stable poppler-utils
 
       - name: Checkout code
         uses: actions/checkout@v7
