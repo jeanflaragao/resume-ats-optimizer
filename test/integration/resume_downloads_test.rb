@@ -332,10 +332,19 @@ class ResumeDownloadsTest < ActionDispatch::IntegrationTest
 
   private
 
+  # Adds an experience after upload, not via the stub's own canned one
+  # (LlmCallGuard::StubChat) -- this file's fixture text carries only "Stub
+  # Candidate, stub@example.com", so the stub's proposed company/title would
+  # fail Resume::Extractors::Llm's own fidelity check and be dropped anyway.
+  # Issue #122: every test below that proceeds to a download needs at least
+  # one experience, or Resume::CachedOptimization.guard_usable! refuses it
+  # before anything this file is actually testing gets to run.
   def upload_resume
     path = write_fixture({ note: "Stub Candidate, stub@example.com" }.to_json)
     post resumes_path, params: { file: Rack::Test::UploadedFile.new(path, "application/json") }
-    Resume.last
+    Resume.last.tap do |resume|
+      resume.experiences.create!(company: "Acme", title: "Engineer", bullets: [ "Built REST APIs" ], position: 1)
+    end
   ensure
     File.delete(path) if path && File.exist?(path)
   end

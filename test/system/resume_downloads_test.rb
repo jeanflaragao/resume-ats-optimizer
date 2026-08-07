@@ -14,7 +14,12 @@ class ResumeDownloadsTest < ApplicationSystemTestCase
   # integration test can't verify, since it never renders real forms or
   # carries real tokens.
   test "checking match, previewing, and downloading all succeed with real CSRF tokens" do
-    path = write_fixture({ note: "Stub Candidate, stub@example.com" }.to_json)
+    # "Example Corp"/"Stub Engineer" matches LlmCallGuard::StubChat's canned
+    # experience verbatim, so it survives Resume::Extractors::Llm's fidelity
+    # check -- without it the stub's proposed experience is dropped, leaving a
+    # resume Resume::CachedOptimization.guard_usable! (issue #122) refuses
+    # before Preview is ever reachable.
+    path = write_fixture({ note: "Stub Candidate, stub@example.com, Stub Engineer at Example Corp" }.to_json)
 
     visit new_resume_path
     attach_file "file", path

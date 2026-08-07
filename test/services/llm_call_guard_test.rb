@@ -42,7 +42,10 @@ class LlmCallGuardTest < ActiveSupport::TestCase
     assert_instance_of LlmCallGuard::StubChat, chat
     content = chat.with_schema(Resume::ExtractionSchema).ask("prompt", with: "file.pdf").content
     assert_includes content["summary"], "LlmCallGuard stub response"
-    assert_equal [], content["experiences"]
+    # Issue #122: one placeholder experience, not empty -- an all-empty stub
+    # resume is unusable by Resume::CachedOptimization.guard_usable!'s own
+    # rule, which would make every stub-mode upload permanently blocked.
+    assert_equal 1, content["experiences"].size
   end
 
   test "stub chat echoes back the right number of bullets for BulletRewriter's schema" do
