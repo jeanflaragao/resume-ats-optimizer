@@ -64,6 +64,9 @@ gem "omniauth-google-oauth2"
 # CSRF protection for OmniAuth's request phase (OmniAuth 2.x no longer includes this itself)
 gem "omniauth-rails_csrf_protection"
 
+# Stripe Checkout for credit packs and the unlimited window
+gem "stripe"
+
 group :development, :test do
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
