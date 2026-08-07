@@ -48,6 +48,7 @@ class DownloadsController < ApplicationController
   def create
     @resume = find_owned_resume!(params[:resume_id])
     job_description_text = params[:job_description_text].to_s
+    unusable_error = usability_error
     unrenderable_error = renderability_error
 
     if job_description_text.blank?
@@ -56,6 +57,14 @@ class DownloadsController < ApplicationController
       status = :unprocessable_entity
     elsif job_description_text.length > MAX_JOB_DESCRIPTION_LENGTH
       flash.now[:alert] = "That job description is too long (maximum #{MAX_JOB_DESCRIPTION_LENGTH} characters). Please shorten it and try again."
+      template = "resumes/show"
+      status = :unprocessable_entity
+    elsif unusable_error
+      # Issue #122, case 2 — same relative position as guard_renderable! below
+      # (ADR-0025): free, deterministic, and knowable from @resume's own
+      # persisted attributes, so it must run before anything downstream is
+      # spent on a resume that can't produce anything usable.
+      flash.now[:alert] = unusable_error.user_message
       template = "resumes/show"
       status = :unprocessable_entity
     elsif unrenderable_error
@@ -68,6 +77,14 @@ class DownloadsController < ApplicationController
       # this error carries only a Unicode block name and a count (ADR-0015).
       Rails.logger.error("DownloadsController refused resume #{@resume.id}: #{unrenderable_error.class} (#{unrenderable_error.message})")
       flash.now[:alert] = unrenderable_error.user_message
+      template = "resumes/show"
+      status = :unprocessable_entity
+    elsif !credit_available_for_this_download?(job_description_text)
+      # Issue #122. A 0-credit user may still download something already
+      # cached (a free hit) -- only refused when this specific (resume, job
+      # description) pair would be a genuine, chargeable miss.
+      flash.now[:alert] = "You're out of credits. This resume hasn't been optimized against this job description before, " \
+                           "so generating it would use one."
       template = "resumes/show"
       status = :unprocessable_entity
     else
@@ -159,6 +176,15 @@ class DownloadsController < ApplicationController
 
   private
 
+    # nil when @resume is usable, or the raised error otherwise — same shape
+    # as renderability_error below.
+    def usability_error
+      Resume::CachedOptimization.guard_usable!(resume: @resume)
+      nil
+    rescue Resume::CachedOptimization::UnusableResumeError => e
+      e
+    end
+
     # nil when @resume renders fine, or the raised error otherwise. A plain
     # method rather than a boolean predicate so #create can log and build the
     # user-facing message from the same error object without guarding twice.
@@ -167,5 +193,13 @@ class DownloadsController < ApplicationController
       nil
     rescue Resume::Pdf::UnrenderableCharacterError => e
       e
+    end
+
+    # Same free-hit exception PreviewsController's credit gate has: a 0-credit
+    # user may still download an (resume, job description) pair that's already
+    # cached from an earlier preview or download.
+    def credit_available_for_this_download?(job_description_text)
+      Credit.available?(Current.user) ||
+        Resume::CachedOptimization.cached?(resume: @resume, job_description_text: job_description_text)
     end
 end

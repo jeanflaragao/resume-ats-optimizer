@@ -48,6 +48,7 @@ class ResumePreviewsTest < ActionDispatch::IntegrationTest
 
   test "an LLM daily limit error on preview redirects with an actionable message" do
     resume = upload_resume
+    resume.experiences.create!(company: "Acme", title: "Engineer", bullets: [ "Built REST APIs" ], position: 1)
     original_call = Resume::Optimization.method(:call)
     Resume::Optimization.define_singleton_method(:call) { |**| raise LlmCallGuard::DailyLimitExceededError, "Daily LLM call cap (10) exceeded" }
 
@@ -66,6 +67,7 @@ class ResumePreviewsTest < ActionDispatch::IntegrationTest
   # wrong advice.
   test "an unverifiable call budget on preview redirects with transient, not daily, advice" do
     resume = upload_resume
+    resume.experiences.create!(company: "Acme", title: "Engineer", bullets: [ "Built REST APIs" ], position: 1)
     original_call = Resume::Optimization.method(:call)
     Resume::Optimization.define_singleton_method(:call) do |**|
       raise LlmCallGuard::BudgetUnavailableError, "LLM call counter is unavailable"
@@ -83,6 +85,7 @@ class ResumePreviewsTest < ActionDispatch::IntegrationTest
 
   test "an LLM service error on preview redirects and does not log PII" do
     resume = upload_resume
+    resume.experiences.create!(company: "Acme", title: "Engineer", bullets: [ "Built REST APIs" ], position: 1)
     secret_jd = "SECRET PREVIEW JD CONTENT MUST NOT BE LOGGED"
     original_call = Resume::Optimization.method(:call)
     Resume::Optimization.define_singleton_method(:call) { |**| raise RubyLLM::OverloadedError.new(secret_jd) }

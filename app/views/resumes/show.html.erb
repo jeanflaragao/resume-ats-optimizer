@@ -74,9 +74,11 @@
       <%= form.submit "Check match", class: "bg-blue-600 text-white rounded px-4 py-2 self-start cursor-pointer" %>
     <% end %>
 
+    <% preview_cost_suffix, preview_disabled = optimization_cost_status(resume: @resume, job_description_text: @job_description_text) %>
     <%= form_with url: resume_preview_path(@resume), method: :post, class: "mb-8" do |form| %>
       <%= form.hidden_field :job_description_text, data: { sync_target: "target" } %>
-      <%= form.submit "Preview optimized resume", class: "bg-gray-700 text-white rounded px-4 py-2 cursor-pointer" %>
+      <%= form.submit [ "Preview optimized resume", preview_cost_suffix ].compact.join(" "),
+            disabled: preview_disabled, class: "bg-gray-700 text-white rounded px-4 py-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" %>
     <% end %>
   </div>
 

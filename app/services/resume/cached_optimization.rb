@@ -11,13 +11,46 @@
 # rather than in a table on purpose -- see ADR-0021 and issue #76: a cache entry
 # expires by construction, a row has to be remembered about.
 class Resume::CachedOptimization
-  # Only has to span one sitting: preview, read it, click download. Deliberately
-  # the same 15 minutes Resume::OptimizedPdfJob::CACHE_EXPIRY gives a generated
-  # download link, because that is the same sitting -- two different windows for
-  # one user journey would be two numbers to keep in sync. Far below issue #59's
-  # proposed 30-day window for the source records, so this can never be the
-  # longest-lived copy of anything.
-  CACHE_TTL = 15.minutes
+  # Issue #122, case 2 of the three deterministic failures that must not
+  # consume a credit: a resume missing a name, or with zero experiences,
+  # cannot produce anything a user would call "an optimized resume" --
+  # BulletRewriter would fan out over nothing, and a would-be cache miss would
+  # still cache and charge for that no-op. Each condition independently
+  # disqualifies: a missing name means a blank PDF header even with real
+  # experience history; zero experiences means nothing to compare or rewrite
+  # even with a name present. A missing summary, missing skills, or any other
+  # single dropped field is acceptable degradation, not this.
+  #
+  # A live predicate, not a persisted flag, deliberately: filling in a missing
+  # name via the existing pending-items flow (PendingItemsController, issue
+  # #118) un-blocks Preview/Download automatically on the next request, with
+  # nothing to clear.
+  class UnusableResumeError < StandardError
+    def initialize
+      super("resume is missing a name or has no experiences to optimize")
+    end
+
+    def user_message
+      "This resume doesn't have enough information to optimize yet -- it's missing a name or has no work " \
+      "experience listed. Fill in the missing details above, then try again."
+    end
+  end
+
+  # One week (issue #122, docs/adr/0035-credit-balance-and-unlimited-window.md),
+  # up from the original 15 minutes -- with accounts and a permanent resume
+  # history, "read it later" is a real usage pattern a single sitting no longer
+  # covers. Deliberately still the same value Resume::OptimizedPdfJob::CACHE_EXPIRY
+  # gives a generated download link, for the reason ADR-0021 originally gave:
+  # two different windows for one user journey would be two numbers to keep in
+  # sync. Still comfortably below Resume::LAST_ACCESSED_PURGE_AFTER (1 month,
+  # ADR-0034), so this can never be the longest-lived copy of anything.
+  #
+  # This is also, now, a real charging boundary: issue #122 charges a credit on
+  # the cache-miss branch below, so once an entry expires, the next Preview or
+  # Download of the same (resume, job description) pair is a genuine new miss
+  # and is charged again. Deliberate, not a bug -- the underlying LLM cost is
+  # genuinely re-incurred too. See the ADR for the full reasoning.
+  CACHE_TTL = 1.week
 
   # Shape of the cached value: the members of Resume::Optimization::Result,
   # Experience and Education. Bump when they change, so a deploy cannot read
@@ -98,6 +131,27 @@ class Resume::CachedOptimization
         resume: resume, job_description_text: job_description_text,
         context: context, chat: chat, lock_wait: lock_wait
       ).call
+    end
+
+    # Issue #122, case 2. Called from PreviewsController#create and
+    # DownloadsController#create before their credit gate and enforce_quota!
+    # -- the same relative position Resume::Pdf.guard_renderable! already has
+    # in Downloads (ADR-0025): free, deterministic, knowable from the resume's
+    # own persisted attributes, so it must run before anything downstream can
+    # be spent on a resume that can't produce anything usable anyway.
+    def guard_usable!(resume:)
+      return unless resume.name.blank? || resume.experiences.empty?
+
+      raise UnusableResumeError
+    end
+
+    # A cheap existence check, no lock and no computation -- whether calling
+    # .call right now would be a free hit or a chargeable miss. Issue #122:
+    # lets a view label the Preview/Download button ("uses 1 credit" vs.
+    # "free -- already generated") and lets the credit gate let a 0-credit
+    # user through to something already paid for, before ever calling .call.
+    def cached?(resume:, job_description_text:)
+      Rails.cache.exist?(cache_key(resume: resume, job_description_text: job_description_text))
     end
 
     # Carries no job description text and no resume field values: ids,
@@ -193,9 +247,23 @@ class Resume::CachedOptimization
 
   attr_reader :resume, :job_description_text, :context, :chat
 
+  # The one place a credit is ever spent (issue #122). Reached from both
+  # branches of #call that genuinely run the pipeline -- the lock winner, and
+  # a waiter that fell through after the winner never wrote a result -- so
+  # every real pipeline run charges exactly once, wherever it happens to run,
+  # with no per-call-site duplication. Free inside an active unlimited window
+  # (Credit.consume! checks that itself, freshly, not from an earlier read).
+  #
+  # After the cache write, not before: this is bookkeeping for a computation
+  # that already happened, not a gate on whether it's allowed to -- that
+  # already ran, upstream, in PreviewsController/DownloadsController before
+  # .call was ever invoked. See docs/adr/0035-credit-balance-and-unlimited-window.md
+  # for why this is an unconditional charge-on-success rather than a
+  # reserve-then-confirm scheme.
   def optimize_and_store
     result = Resume::Optimization.call(resume: resume, job_description_text: job_description_text, chat: chat)
     Rails.cache.write(cache_key, result, expires_in: CACHE_TTL)
+    Credit.consume!(resume.user)
     result
   end
 

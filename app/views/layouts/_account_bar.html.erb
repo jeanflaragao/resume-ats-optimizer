@@ -1,5 +1,6 @@
 <% if authenticated? %>
   <div class="flex justify-end items-center gap-3 text-sm text-gray-600">
+    <span><%= credit_balance_label(Current.user) %></span>
     <span><%= Current.user.email %></span>
     <%= button_to "Sign out", session_path, method: :delete, class: "underline cursor-pointer" %>
   </div>

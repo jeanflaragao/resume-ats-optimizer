@@ -277,13 +277,25 @@ class LlmCallGuard
     def stub_content(prompt)
       case @schema.name
       when "Resume::ExtractionSchema"
+        # Issue #122: a resume with zero experiences is refused before it can
+        # ever reach a chargeable optimization (Resume::CachedOptimization.
+        # guard_usable!), so an all-empty stub silently made every stub-mode
+        # upload permanently unusable downstream. One placeholder experience
+        # keeps this a labeled stub -- STUB_LABEL still marks the summary --
+        # while giving stub-mode resumes something to preview/download.
+        # "Example Corp"/"Stub Engineer" only survive Resume::Extractors::
+        # Llm's own fidelity check if the uploaded file's text contains them
+        # verbatim -- test fixtures that want a *usable* stub resume include
+        # this exact phrase alongside "Stub Candidate, stub@example.com".
         {
           "name" => "Stub Candidate",
           "email" => "stub@example.com",
           "phone" => nil,
           "summary" => STUB_LABEL,
           "skills" => [],
-          "experiences" => [],
+          "experiences" => [
+            { "company" => "Example Corp", "title" => "Stub Engineer", "bullets" => [] }
+          ],
           "educations" => []
         }
       when "BulletRewriter::Schema"

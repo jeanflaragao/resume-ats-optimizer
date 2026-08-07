@@ -18,11 +18,11 @@ class Resume::PdfRequest < ApplicationRecord
 
   # How long a request may sit on disk before it is deleted unread.
   #
-  # NOT inherited from Resume::CachedOptimization::CACHE_TTL / ADR-0012 -- that
-  # window measures how long a *finished artifact* stays downloadable, which is
-  # a different quantity from how long we retain the *input* to a job that
-  # failed or has not started. Derived instead from the two sides that actually
-  # bound it:
+  # NOT inherited from Resume::CachedOptimization::CACHE_TTL / ADR-0021 (now a
+  # week, issue #122) -- that window measures how long a *finished artifact*
+  # stays downloadable, which is a different quantity from how long we retain
+  # the *input* to a job that failed or has not started. Derived instead from
+  # the two sides that actually bound it:
   #
   #   Privacy (shorter is better): the floor is worst-case enqueue-to-finish.
   #   Resume::CachedOptimization measured the pipeline at 0.25s + 4.5s per

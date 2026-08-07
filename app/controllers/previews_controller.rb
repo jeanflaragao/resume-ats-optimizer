@@ -21,12 +21,27 @@ class PreviewsController < ApplicationController
     @resume = find_owned_resume!(params[:resume_id])
     @job_description_text = params[:job_description_text].to_s
 
+    unusable_error = usability_error
+
     if @job_description_text.blank?
       flash.now[:alert] = "Please paste a job description first."
       template = "resumes/show"
       status = :unprocessable_entity
     elsif @job_description_text.length > MAX_JOB_DESCRIPTION_LENGTH
       flash.now[:alert] = "That job description is too long (maximum #{MAX_JOB_DESCRIPTION_LENGTH} characters). Please shorten it and try again."
+      template = "resumes/show"
+      status = :unprocessable_entity
+    elsif unusable_error
+      # Issue #122, case 2 — checked before the credit gate and
+      # enforce_quota! below, same reasoning as DownloadsController's
+      # guard_renderable! check (ADR-0025): free, deterministic, and knowable
+      # from @resume's own persisted attributes.
+      flash.now[:alert] = unusable_error.user_message
+      template = "resumes/show"
+      status = :unprocessable_entity
+    elsif !credit_available_for_this_preview?
+      flash.now[:alert] = "You're out of credits. This resume hasn't been optimized against this job description before, " \
+                           "so previewing it would use one."
       template = "resumes/show"
       status = :unprocessable_entity
     else
@@ -53,4 +68,26 @@ class PreviewsController < ApplicationController
       end
     end
   end
+
+  private
+
+    # nil when @resume is usable, or the raised error otherwise — same shape
+    # DownloadsController#renderability_error already uses, so #create can log
+    # and build the message from the same error object without guarding twice.
+    def usability_error
+      Resume::CachedOptimization.guard_usable!(resume: @resume)
+      nil
+    rescue Resume::CachedOptimization::UnusableResumeError => e
+      e
+    end
+
+    # A 0-credit user (and not inside an unlimited window) may still preview
+    # something already cached — that specific request is a free hit, not a
+    # new spend. Only checked once @job_description_text is known to be
+    # present and within bounds; nil job_description_text is caught by the
+    # blank-check branch above first.
+    def credit_available_for_this_preview?
+      Credit.available?(Current.user) ||
+        Resume::CachedOptimization.cached?(resume: @resume, job_description_text: @job_description_text)
+    end
 end

@@ -72,6 +72,7 @@ class UsageQuotaTest < ActionDispatch::IntegrationTest
   test "a download past the quota enqueues no job and writes no job-description row" do
     ENV["RATE_LIMIT_PDF_GENERATION_PER_DAY"] = "1"
     resume = upload_resume
+    resume.experiences.create!(company: "Acme", title: "Engineer", bullets: [ "Built REST APIs" ], position: 1)
     post resume_downloads_path(resume), params: { job_description_text: "We need a Ruby engineer." }
     assert_response :redirect
 
@@ -100,6 +101,7 @@ class UsageQuotaTest < ActionDispatch::IntegrationTest
   test "a resume with an unrenderable name is refused without enqueuing a job or spending pdf_generation quota" do
     resume = upload_resume
     resume.update!(name: "שלום")
+    resume.experiences.create!(company: "Acme", title: "Engineer", bullets: [ "Built REST APIs" ], position: 1)
 
     assert_no_enqueued_jobs only: Resume::OptimizedPdfJob do
       assert_no_difference -> { Resume::PdfRequest.count } do

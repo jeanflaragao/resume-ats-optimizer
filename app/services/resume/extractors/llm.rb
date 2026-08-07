@@ -1,5 +1,3 @@
-require "open3"
-
 # Sends the resume file directly to Claude for extraction, then verifies the
 # result against the source document's own text before returning it —
 # Resume::ExtractionSchema's field descriptions ask the LLM not to invent
@@ -47,20 +45,11 @@ require "open3"
 # from its base letter, sometimes displacing a base letter entirely) badly
 # enough to fail verbatim matching on correctly-extracted, correctly-spelled
 # names — not a layout ambiguity, a text-layer bug. pdftotext (poppler-utils,
-# no -layout flag — see #extract_pdf_text) fixed both the accent corruption and
+# no -layout flag — see Resume::PdfText) fixed both the accent corruption and
 # a two-column-interleaving word-splitting issue pdf-reader also had.
 class Resume::Extractors::Llm
   include WordBoundaryMatchable
   include RedactedTokenHint
-
-  # Raised by #extract_pdf_text when pdftotext can't read the file — the
-  # pdftotext-based counterpart to PDF::Reader::MalformedPDFError, which
-  # ResumesController's rescue clause already maps to the same friendly
-  # "we couldn't read that file" flash. PdfRegex (a different extractor) still
-  # uses pdf-reader directly and can still raise the original PDF::Reader
-  # errors, so those stay in that rescue list too — this is additive, not a
-  # replacement.
-  class PdfExtractionError < StandardError; end
 
   BULLET_MIN_TOKEN_COVERAGE = 0.9
   SUMMARY_MIN_TOKEN_COVERAGE = 0.75
@@ -269,33 +258,15 @@ class Resume::Extractors::Llm
     { "kind" => "dropped_field", "field" => field, "reason" => reason, "raw_value" => nil }
   end
 
+  # Issue #122: the pdftotext call itself moved to Resume::PdfText, shared
+  # with Resume::PdfReadabilityGuard's upload-time check, so both read the
+  # exact same extraction rather than two call sites drifting.
   def source_text
     @source_text ||= case File.extname(file_path).delete_prefix(".").downcase
     when "pdf"
-      extract_pdf_text
+      Resume::PdfText.extract(file_path)
     else
       File.read(file_path)
     end
-  end
-
-  # No -layout flag, deliberately: -layout preserves the PDF's column
-  # positions, which reintroduces the same class of corruption pdftotext was
-  # chosen to fix, just from a different cause — a two-column resume read
-  # row-by-row interleaves both columns onto one output line, splitting a word
-  # across the seam ("Ja-" / "nuary" from "January", straddling the column
-  # break). Default mode reads one column fully before the next, matching
-  # normal reading order and keeping words intact. Verified both modes
-  # directly against a real two-column CV before choosing this over -layout.
-  #
-  # Raises rather than falling back to a worse extraction on failure —
-  # poppler-utils is a required package in both Dockerfiles and CI (issue
-  # #126); a missing binary or a pdftotext failure is a deploy/environment
-  # bug that should be loud, not a reason to silently reintroduce the
-  # corruption this method exists to avoid.
-  def extract_pdf_text
-    stdout, status = Open3.capture2("pdftotext", file_path, "-")
-    raise PdfExtractionError, "pdftotext exited #{status.exitstatus} extracting #{file_path}" unless status.success?
-
-    stdout
   end
 end

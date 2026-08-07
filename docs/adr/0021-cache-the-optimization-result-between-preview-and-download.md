@@ -1,7 +1,9 @@
 # ADR-0021: Cache the optimization result between preview and download, keyed by a job-description digest
 
 ## Status
-Accepted
+Accepted. `CACHE_TTL`/`Resume::OptimizedPdfJob::CACHE_EXPIRY`'s value (was 15 minutes) is superseded
+by [ADR-0035](0035-credit-balance-and-unlimited-window.md) (now 1 week) — the cache-key structure and
+double-submit lock design below are otherwise unchanged and remain this ADR's.
 
 ## Context
 

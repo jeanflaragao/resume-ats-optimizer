@@ -31,7 +31,28 @@ class ResumesController < ApplicationController
       return render :new, status: :unprocessable_entity
     end
 
-    # After the two cheap rejections above, before the Anthropic request inside
+    # Issue #122: a binary "can you start" gate, not a charge -- the actual
+    # debit happens later, at Resume::CachedOptimization's cache-miss, not
+    # here. Ahead of the readability guard below and enforce_quota!: extraction
+    # is a real, measured Anthropic request (R$0.29 for a heavy CV) with no
+    # revenue path for a 0-credit user, so it's refused before spending
+    # anything, the same "check before charging" shape as every guard below.
+    unless Credit.available?(Current.user)
+      flash.now[:alert] = "You're out of credits, so we can't start a new upload right now. " \
+                           "Your existing resumes and downloads are still available from your history."
+      return render :new, status: :unprocessable_entity
+    end
+
+    # Issue #122, case 1: a scanned-image PDF with no text layer. Native,
+    # before any LLM call -- see Resume::PdfReadabilityGuard. JSON uploads
+    # have no equivalent failure mode (a JSON parse failure is handled by the
+    # InvalidJsonError rescue below, not this guard).
+    if pdf_upload? && !readable_pdf?
+      flash.now[:alert] = "We could not read any text in this PDF; it may be a scanned image."
+      return render :new, status: :unprocessable_entity
+    end
+
+    # After the guards above, before the Anthropic request inside
     # Resume::Import (issue #22).
     enforce_quota!(:resume_extraction)
 
@@ -45,7 +66,7 @@ class ResumesController < ApplicationController
     flash.now[:alert] = "We couldn't process that file: #{e.message}"
     render :new, status: :unprocessable_entity
   rescue PDF::Reader::MalformedPDFError, PDF::Reader::UnsupportedFeatureError,
-         Resume::Extractors::Llm::PdfExtractionError,
+         Resume::PdfText::ExtractionError,
          Resume::Extractors::JsonMapper::InvalidJsonError => e
     # Log class only — PDF parser messages may include binary PDF bytes; JSON
     # parser messages include the temp file path. Neither is PII, but neither
@@ -63,4 +84,24 @@ class ResumesController < ApplicationController
   def show
     @resume = find_owned_resume!(params[:id])
   end
+
+  private
+
+    def pdf_upload?
+      File.extname(params[:file].original_filename.to_s).delete_prefix(".").downcase == "pdf"
+    end
+
+    # true/false, not a guard!-style raise: unlike Resume::Pdf.guard_renderable!
+    # (rescued for its own message further up in the file), this check only
+    # ever needs one branch point, right here. A genuine Resume::PdfText::
+    # ExtractionError (pdftotext itself failing, not merely finding little
+    # text) is deliberately left to propagate into the existing rescue clause
+    # below rather than being folded into this method's false — the two are
+    # different facts with different messages.
+    def readable_pdf?
+      Resume::PdfReadabilityGuard.call!(file_path: params[:file].path.to_s)
+      true
+    rescue Resume::PdfReadabilityGuard::UnreadableError
+      false
+    end
 end
