@@ -59,6 +59,17 @@ actually breaks if it's missing, not just "required."
 | `PORT` | *(don't set — Railway injects this automatically)* | `bin/docker-entrypoint` maps it to Thruster's `HTTP_PORT`; without it Thruster falls back to port 80, which may not match what Railway routes to. |
 | `GOOGLE_OAUTH_CLIENT_ID` | from the Google Cloud Console OAuth client (see note below) | **Blocking, no default in production.** Refuses to boot without it (ADR-0032, `Authentication::ConfigGuard`). Since accounts are mandatory (issue #120), this isn't a degraded mode — nobody can sign in. |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | same client, never commit this | Same. |
+| `STRIPE_SECRET_KEY` | your Stripe account's secret key (see note below) | **Blocking, no default in production** (issue #123, `Payments::ConfigGuard`). |
+| `STRIPE_WEBHOOK_SECRET` | the signing secret for the production webhook endpoint (see note below) | **Blocking.** Without it every webhook delivery fails signature verification — real money in with no credits ever granted. |
+| `STRIPE_PRICE_ID_5_CREDITS` | Price id for the 5-credit product | **Blocking, no default.** |
+| `STRIPE_PRICE_ID_15_CREDITS` | Price id for the 15-credit product | **Blocking, no default.** |
+| `STRIPE_PRICE_ID_UNLIMITED_30_DAYS` | Price id for the 30-day-unlimited product | **Blocking, no default.** |
+
+All five Stripe variables above go on **both** web and worker, same as Google OAuth's pair — not
+because the worker ever calls Stripe (checkout creation and webhook processing are both
+synchronous controller actions; nothing Stripe-related is enqueued), but because
+`Payments::ConfigGuard.validate_configuration!` runs in every process's boot sequence
+(`to_prepare`), worker included, so an unset var there fails the worker's boot too.
 
 **Setting up Google OAuth**: register **one** Google Cloud OAuth 2.0 Client (Web application
 type), and add **both** of these as Authorized redirect URIs on that single client — not two
@@ -72,6 +83,67 @@ Use the same `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET` pair in your 
 Railway's env vars — the code never branches on environment for the callback URL itself
 (`omniauth-google-oauth2` builds it from the incoming request's own host); only which redirect
 URIs are registered in Google Cloud Console differs.
+
+**Setting up Stripe** (issue #123):
+
+1. **Create the account.** [dashboard.stripe.com/register](https://dashboard.stripe.com/register),
+   business country Brazil. Stripe starts every new account in **test mode** — you can create
+   products, run through Checkout with test cards, and register webhooks entirely in test mode
+   before ever activating the account for real payments; activation (business details, bank
+   account) is only required before you flip to live-mode keys. Do the whole first deploy in test
+   mode first.
+2. **Create the three Products**, each with one **one-off** Price (not recurring — there's no
+   subscription anywhere in this app, ADR-0036): in the Dashboard, **Product catalog → Add
+   product**, set **Pricing model: One time**, currency **BRL**.
+   - "5 credits" — R$14.90
+   - "15 credits" — R$24.90
+   - "30-day unlimited" — R$39.90
+
+   Each product's detail page shows its **Price id** (`price_...`) — that's what goes in
+   `STRIPE_PRICE_ID_5_CREDITS` etc., not the Product id (`prod_...`). Test mode and live mode are
+   entirely separate catalogs with different Price ids for the "same" product — you'll do this step
+   twice, once per mode, and Railway's env vars need the **live**-mode ids (production takes real
+   payments); your local `.env` needs the **test**-mode ids.
+3. **Get the secret key.** **Developers → API keys** — copy the **Secret key** (`sk_test_...` in
+   test mode, `sk_live_...` once activated for live mode). This is `STRIPE_SECRET_KEY`. Never the
+   Publishable key — this app never sends Stripe.js to the browser (Checkout is a server-created,
+   server-redirected hosted page, ADR-0036), so there is no client-side use for it anywhere in this
+   codebase.
+4. **Register the webhook endpoint, after the web service has a public domain** (same
+   chicken-and-egg as Google OAuth's redirect URI above — the URL isn't knowable until step 4 of
+   this runbook has run once). **Developers → Webhooks → Add endpoint**:
+   - Endpoint URL: `https://<the web service's RAILWAY_PUBLIC_DOMAIN>/payments/webhooks`
+   - Events to send: **`checkout.session.completed`** only — not "all events". `Payments::GrantFromEvent`
+     already no-ops safely on an event type it doesn't handle, but subscribing to only what's
+     actually used keeps the Dashboard's own event log free of noise you'd otherwise have to filter
+     past when debugging a real delivery.
+   - After creating it, open the endpoint's own page and reveal its **Signing secret**
+     (`whsec_...`) — that's `STRIPE_WEBHOOK_SECRET`. This is a **different value per endpoint**,
+     not the same thing as `stripe listen`'s local signing secret below — swapping them gives every
+     production webhook delivery a `Stripe::SignatureVerificationError`.
+
+**Testing the webhook locally, with the Stripe CLI** (no production endpoint needed for this):
+
+1. Install the [Stripe CLI](https://docs.stripe.com/stripe-cli), then `stripe login` once (opens a
+   browser to link it to your account).
+2. In one terminal, with the app running (`docker compose up web`):
+   ```sh
+   stripe listen --forward-to localhost:3000/payments/webhooks
+   ```
+   This prints its own local webhook signing secret (`whsec_...`, different from any Dashboard
+   endpoint's) — put that in your local `.env`'s `STRIPE_WEBHOOK_SECRET` for the duration of the
+   session; `stripe listen` mints a fresh one on every run.
+3. Either click through a real Checkout session with a [test
+   card](https://docs.stripe.com/testing#cards) (`4242 4242 4242 4242`, any future expiry, any
+   CVC), or fire a synthetic event directly without a real Checkout session at all:
+   ```sh
+   stripe trigger checkout.session.completed
+   ```
+   The triggered event won't carry a real `client_reference_id`/valid Price id from this app's own
+   catalog, so `Payments::GrantFromEvent` logs a class-only "skipped" line and grants nothing (see
+   its `log_and_skip` — this is the correct, safe behavior for a synthetic event, not a bug); it's
+   still useful to confirm the endpoint receives a `200` and the signature verifies. Use the real
+   Checkout click-through above to see an actual grant land.
 
 **Sizing `MAX_LLM_CALLS_PER_DAY` and the `RATE_LIMIT_*` values**: no production usage data exists
 yet (this is the first deploy), so these are inherited from the same values already used for
