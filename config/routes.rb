@@ -16,7 +16,7 @@ Rails.application.routes.draw do
   get "/auth/failure", to: "sessions#failure"
   get "/auth/:provider/callback", to: "sessions#create"
 
-  resources :resumes, only: %i[new create show] do
+  resources :resumes, only: %i[index new create show] do
     resource :job_description, only: :create
     resource :preview, only: :create
     resource :pending_items, only: :create
@@ -26,6 +26,7 @@ Rails.application.routes.draw do
     member { get :ready }
   end
 
-  # Defines the root path route ("/")
-  root "resumes#new"
+  # Issue #121: a signed-in user's own resume history, not the upload form —
+  # upload is reachable from there as an action, not the landing page itself.
+  root "resumes#index"
 end

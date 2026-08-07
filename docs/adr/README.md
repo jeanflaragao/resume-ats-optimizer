@@ -30,13 +30,15 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0020 | Refuse to boot production on LlmCallGuard's local-testing defaults | Accepted | [0020-fail-closed-llm-guard-configuration-in-production.md](0020-fail-closed-llm-guard-configuration-in-production.md) |
 | 0021 | Cache the optimization result between preview and download, keyed by a job-description digest | Accepted | [0021-cache-the-optimization-result-between-preview-and-download.md](0021-cache-the-optimization-result-between-preview-and-download.md) |
 | 0022 | Pass the download job a job-description reference, not the text | Accepted | [0022-job-description-reference-instead-of-queue-argument.md](0022-job-description-reference-instead-of-queue-argument.md) |
-| 0023 | Per-session usage quotas in Postgres, alongside (not instead of) the global LLM cap | Accepted | [0023-per-session-usage-quotas-in-postgres.md](0023-per-session-usage-quotas-in-postgres.md) |
+| 0023 | Per-session usage quotas in Postgres, alongside (not instead of) the global LLM cap | Superseded by 0033 | [0023-per-session-usage-quotas-in-postgres.md](0023-per-session-usage-quotas-in-postgres.md) |
 | 0024 | Add a CJK fallback font, and refuse scripts requiring text shaping even when glyphs exist | Accepted | [0024-refuse-scripts-requiring-shaping.md](0024-refuse-scripts-requiring-shaping.md) |
 | 0025 | Check PDF renderability before spending quota, and resolve fallback fonts lazily | Accepted | [0025-check-renderability-before-spending-quota.md](0025-check-renderability-before-spending-quota.md) |
-| 0026 | Purge stale resumes with owner-scoped retention | Accepted | [0026-purge-stale-resumes.md](0026-purge-stale-resumes.md) |
+| 0026 | Purge stale resumes with owner-scoped retention | Superseded by 0034 | [0026-purge-stale-resumes.md](0026-purge-stale-resumes.md) |
 | 0027 | Disable Turbo's progress bar rather than widen style-src | Accepted | [0027-disable-turbo-progress-bar-for-csp.md](0027-disable-turbo-progress-bar-for-csp.md) |
 | 0028 | Deploy to Railway now; keep Kamal as the documented path to AWS later | Accepted | [0028-deploy-to-railway-not-kamal.md](0028-deploy-to-railway-not-kamal.md) |
 | 0029 | Redirect `DownloadsController#create` to an addressable `/downloads/:id` | Accepted | [0029-redirect-downloads-to-an-addressable-url.md](0029-redirect-downloads-to-an-addressable-url.md) |
 | 0030 | Converge `DownloadsController#ready` on `204 No Content` for an owner mismatch | Accepted | [0030-converge-ready-on-no-content-for-owner-mismatch.md](0030-converge-ready-on-no-content-for-owner-mismatch.md) |
 | 0031 | Persist discarded resume data as pending items, and never prefill a possibly-fabricated one | Accepted | [0031-surface-discarded-resume-data.md](0031-surface-discarded-resume-data.md) |
 | 0032 | Google OAuth authentication, superseding the Rails 8 auth generator plan | Accepted | [0032-google-oauth-authentication.md](0032-google-oauth-authentication.md) |
+| 0033 | Key Usage::Quota's subject on the signed-in user, not the session | Accepted | [0033-user-id-usage-quotas.md](0033-user-id-usage-quotas.md) |
+| 0034 | One month from last access, single-tier, credits never purged | Accepted | [0034-one-month-user-scoped-retention.md](0034-one-month-user-scoped-retention.md) |

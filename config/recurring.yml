@@ -49,11 +49,11 @@ production:
   # siblings above.
   #
   # Hourly rather than every-5-minutes (purge_stale_pdf_requests) or daily
-  # (purge_stale_usage_counters): the shortest window enforced here is
-  # Resume::ORPHAN_PURGE_AFTER at 24 hours, so hourly keeps the
-  # schedule-vs-window error term small (~1 hour of drift on a 24-hour
-  # promise) without being wastefully frequent for data that isn't
-  # time-critical the way #76's plaintext-job-description leak was.
+  # (purge_stale_usage_counters): Resume::LAST_ACCESSED_PURGE_AFTER (1 month,
+  # issue #121/ADR-0034) has enormous slack against an hourly check, but
+  # hourly still matters here for a different reason than schedule-vs-window
+  # drift -- it spreads a month's worth of matches across many small batches
+  # instead of one large one landing all at once every 24 hours.
   purge_stale_resumes:
     class: "Resume::PurgeStaleJob"
     schedule: every hour

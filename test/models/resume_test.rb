@@ -24,9 +24,9 @@ class ResumeTest < ActiveSupport::TestCase
     end
   end
 
-  test "purge_stale! deletes a claimed resume last accessed before LAST_ACCESSED_PURGE_AFTER and keeps one accessed since" do
-    stale = Resume.create!(owner_token: "token-a", last_accessed_at: Resume::LAST_ACCESSED_PURGE_AFTER.ago - 1.minute)
-    recent = Resume.create!(owner_token: "token-b", last_accessed_at: Resume::LAST_ACCESSED_PURGE_AFTER.ago + 1.minute)
+  test "purge_stale! deletes a resume last accessed before LAST_ACCESSED_PURGE_AFTER and keeps one accessed since" do
+    stale = Resume.create!(user: users(:jordan), last_accessed_at: Resume::LAST_ACCESSED_PURGE_AFTER.ago - 1.minute)
+    recent = Resume.create!(user: users(:alex), last_accessed_at: Resume::LAST_ACCESSED_PURGE_AFTER.ago + 1.minute)
 
     Resume.purge_stale!
 
@@ -34,35 +34,11 @@ class ResumeTest < ActiveSupport::TestCase
     assert Resume.exists?(recent.id)
   end
 
-  test "purge_stale! deletes a never-claimed resume older than ORPHAN_PURGE_AFTER and keeps one created since" do
-    stale_orphan = Resume.create!(owner_token: nil, created_at: Resume::ORPHAN_PURGE_AFTER.ago - 1.minute)
-    recent_orphan = Resume.create!(owner_token: nil, created_at: Resume::ORPHAN_PURGE_AFTER.ago + 1.minute)
-
-    Resume.purge_stale!
-
-    assert_not Resume.exists?(stale_orphan.id)
-    assert Resume.exists?(recent_orphan.id)
-  end
-
-  test "purge_stale! never purges a claimed resume via the orphan tier, even when long unaccessed" do
-    # Old enough that ORPHAN_PURGE_AFTER (24h) would catch it if the orphan
-    # tier ignored owner_token -- it must not, since this resume is claimed.
-    claimed = Resume.create!(
-      owner_token: "token-c",
-      last_accessed_at: Resume::LAST_ACCESSED_PURGE_AFTER.ago + 1.hour,
-      created_at: Resume::ORPHAN_PURGE_AFTER.ago - 1.year
-    )
-
-    Resume.purge_stale!
-
-    assert Resume.exists?(claimed.id)
-  end
-
   # Non-vacuity: asserts on Experience/Education/Resume::PdfRequest counts, not
   # just Resume's, so a delete_all-based implementation (which strands children
-  # -- see ADR-0026) fails this test instead of passing it vacuously.
+  # -- see ADR-0034) fails this test instead of passing it vacuously.
   test "purge_stale! removes a stale resume's experiences, educations, and pdf requests, not just the resume" do
-    stale = Resume.create!(owner_token: "token-d", last_accessed_at: Resume::LAST_ACCESSED_PURGE_AFTER.ago - 1.minute)
+    stale = Resume.create!(user: users(:jordan), last_accessed_at: Resume::LAST_ACCESSED_PURGE_AFTER.ago - 1.minute)
     stale.experiences.create!(company: "Acme", title: "Engineer", position: 1)
     stale.educations.create!(school: "State U", position: 1)
     stale.pdf_requests.create!(download_id: SecureRandom.uuid, text: "irrelevant")
@@ -76,5 +52,22 @@ class ResumeTest < ActiveSupport::TestCase
         end
       end
     end
+  end
+
+  # Issue #121/ADR-0034: credits (issue #122) are a permanent liability, never
+  # deleted alongside a purged account's resumes. Usage::Counter is the
+  # closest analog available today -- #122's actual Credit model doesn't
+  # exist yet -- so this asserts the boundary Resume.purge_stale! must never
+  # cross using what's buildable now, standing in for the real balance check
+  # once #122 lands.
+  test "purge_stale! does not delete the resume's owner or touch their usage counters" do
+    user = users(:jordan)
+    Usage::Counter.consume!(subject_token: user.id.to_s, action_type: "resume_extraction")
+    Resume.create!(user: user, last_accessed_at: Resume::LAST_ACCESSED_PURGE_AFTER.ago - 1.minute)
+
+    Resume.purge_stale!
+
+    assert User.exists?(user.id)
+    assert_equal 1, Usage::Counter.find_by(subject_token: user.id.to_s, action_type: "resume_extraction").count
   end
 end

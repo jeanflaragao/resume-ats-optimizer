@@ -9,9 +9,7 @@ class Resume::PurgeStaleJob < ApplicationJob
   queue_as :default
 
   def perform
-    counts = Resume.purge_stale!
-    Rails.logger.info(
-      "Resume::PurgeStaleJob: purged #{counts[:claimed]} claimed, #{counts[:orphan]} orphaned resume(s)"
-    )
+    count = Resume.purge_stale!
+    Rails.logger.info("Resume::PurgeStaleJob: purged #{count} resume(s)")
   end
 end

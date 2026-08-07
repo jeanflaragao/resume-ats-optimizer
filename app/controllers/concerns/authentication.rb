@@ -6,10 +6,10 @@
 # differs (Google OAuth via SessionsController#create, not
 # User.authenticate_by).
 #
-# Deliberately independent of current_owner_token/find_owned_resume!/
-# enforce_quota! below in ApplicationController: this concern decides *who is
-# signed in*, not *which resumes a signed-in visitor can see* — that
-# owner_token-to-user_id migration is issue #121, not this one.
+# Deliberately independent of find_owned_resume!/enforce_quota! in
+# ApplicationController: this concern decides *who is signed in*, not *which
+# resumes a signed-in visitor can see* — that scoping (owner_token migrated to
+# user_id) landed separately in issue #121.
 module Authentication
   extend ActiveSupport::Concern
 

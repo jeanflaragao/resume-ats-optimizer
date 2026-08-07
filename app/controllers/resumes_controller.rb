@@ -10,6 +10,13 @@ class ResumesController < ApplicationController
   # bounded without rejecting any realistic resume or LinkedIn export.
   MAX_UPLOAD_BYTES = 10 * 1024 * 1024 # 10 MB
 
+  # Issue #121. The signed-in user's own resume history — root points here
+  # (config/routes.rb) so a returning user lands on their own work instead of
+  # an empty upload form, which is the visible payoff of durable ownership.
+  def index
+    @resumes = Current.user.resumes.order(last_accessed_at: :desc)
+  end
+
   def new
   end
 
@@ -28,11 +35,10 @@ class ResumesController < ApplicationController
     # Resume::Import (issue #22).
     enforce_quota!(:resume_extraction)
 
-    resume = Resume::Import.call(file: params[:file], strategy: DEFAULT_STRATEGY)
-    # last_accessed_at starts the issue #59 retention clock immediately, rather
-    # than leaving it nil (which would read as the never-claimed/orphan case)
-    # until the user's first subsequent visit.
-    resume.update!(owner_token: current_owner_token, last_accessed_at: Time.current)
+    # Resume::Import sets user: and last_accessed_at in the same create! call
+    # that persists everything else (issue #121, ADR-0034) — there is no
+    # second update! here the way there was for owner_token.
+    resume = Resume::Import.call(file: params[:file], strategy: DEFAULT_STRATEGY, user: Current.user)
 
     redirect_to resume_path(resume)
   rescue ActiveRecord::RecordInvalid, Resume::Import::UnsupportedFormatError => e

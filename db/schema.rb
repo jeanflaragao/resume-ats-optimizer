@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_06_130659) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_07_083740) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -68,16 +68,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_06_130659) do
     t.string "email"
     t.datetime "last_accessed_at"
     t.string "name"
-    t.string "owner_token"
     t.jsonb "pending_items", default: [], null: false
     t.string "phone"
     t.jsonb "skills", default: [], null: false
     t.string "source"
     t.text "summary"
     t.datetime "updated_at", null: false
-    t.index ["created_at"], name: "index_resumes_on_created_at", where: "(owner_token IS NULL)"
-    t.index ["last_accessed_at"], name: "index_resumes_on_last_accessed_at", where: "(owner_token IS NOT NULL)"
-    t.index ["owner_token"], name: "index_resumes_on_owner_token"
+    t.bigint "user_id", null: false
+    t.index ["last_accessed_at"], name: "index_resumes_on_last_accessed_at"
+    t.index ["user_id"], name: "index_resumes_on_user_id"
   end
 
   create_table "sessions", force: :cascade do |t|
@@ -114,5 +113,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_06_130659) do
   add_foreign_key "experiences", "resumes"
   add_foreign_key "identities", "users"
   add_foreign_key "resume_pdf_requests", "resumes", on_delete: :cascade
+  add_foreign_key "resumes", "users"
   add_foreign_key "sessions", "users"
 end

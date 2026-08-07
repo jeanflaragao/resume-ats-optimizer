@@ -9,23 +9,19 @@
 # They are deliberately not merged. Issue #45 records the case for folding them
 # together later; ADR-0023 records why doing it here would be premature.
 #
-# ## The subject is a browser session, not a person
+# ## The subject is the signed-in user, not a browser session
 #
-# There is no User model and no authentication in this app yet -- ownership is
+# Issue #121/ADR-0033: subject is now Current.user.id.to_s, passed in by
+# ApplicationController#enforce_quota!. Before that, ownership was
 # ApplicationController#current_owner_token, an opaque per-session token
-# (ADR-0007). So "per-user" here means per browser session, and a visitor who
-# opens an incognito window gets a fresh quota. That is a real, known limit:
+# (ADR-0007) -- "per-user" meant per browser session, and a visitor who opened
+# an incognito window got a fresh quota. Mandatory Google-verified accounts
+# (#120) close that specific bypass: a quota now genuinely follows a person,
+# not a cookie.
 #
-#   - It does stop the case this issue was opened for: one person re-submitting
-#     large job descriptions in one sitting, and taking down everyone else's day
-#     with them by exhausting the global cap.
-#   - It does NOT make public signup safe, which issue #45's "trigger condition"
-#     comment assumed #22 would. Bypassing it costs one keystroke. The global
-#     cap remains the only thing standing between a determined abuser and the
-#     bill, which is exactly why #45 says not to remove it.
-#
-# When real auth lands, `subject` becomes a user id and nothing else here
-# changes -- Usage::Counter#subject_token is an opaque string by design.
+# This is what makes issue #106 solvable -- LlmCallGuard's global cap has no
+# caller dimension to give it, and now one exists -- but solving #106 is a
+# separate decision, not done here (ADR-0033 cross-references it explicitly).
 class Usage::Quota
   # Raised instead of performing the action. Carries the action and the limit so
   # the controller can say which quota was hit and how large it is, without the

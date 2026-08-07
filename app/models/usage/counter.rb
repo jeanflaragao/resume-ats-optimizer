@@ -5,8 +5,11 @@
 # mechanism from LlmCallGuard's global daily cap and deliberately does not
 # replace it -- see ADR-0023 and issue #45.
 #
-# The subject is currently a browser session token, not a person: see
-# subject_token below.
+# The subject is the signed-in user's id, as a string (issue #121, ADR-0033) --
+# see subject_token below. subject_token stays a plain string column rather
+# than gaining a dedicated users FK: nothing here joins against it or needs
+# referential integrity, and Usage::Counter.purge_stale! already deletes
+# independent of any other table's lifecycle.
 class Usage::Counter < ApplicationRecord
   # Usage is a plain namespace module, not an ActiveRecord model, so Rails'
   # nested-class table prefixing (which is what gives Resume::PdfRequest its

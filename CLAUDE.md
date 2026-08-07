@@ -121,7 +121,9 @@ Kamal-flavored reasoning below still means without it.
   anymore; see Project layout) and a deterministic extractor
   (`pdf-reader` + regex/heuristics for PDF, direct `JSON` mapping for JSON) that's free and fully
   unit-testable but only reliable on LinkedIn's fairly consistent PDF export layout.
-- **Auth**: Rails 8's built-in authentication generator, not Devise.
+- **Auth**: Mandatory Google OAuth via `omniauth-google-oauth2` (issue #120, ADR-0032) — no
+  anonymous session reaches any controller action. Not Devise, and not Rails 8's built-in
+  generator either: that plan (ADR-0007) was superseded once OAuth was chosen over email/password.
 - **Testing**: Minitest, the Rails default — no extra gem needed.
 
 **Why Rails**: full reasoning and alternatives considered are recorded in
@@ -205,23 +207,29 @@ No Postgres or `libpq` is required on the host — everything runs through Docke
 Otherwise standard Rails 8 conventions.
 
 - **`app/models`**: `Resume` (`name`/`email`/`phone` nullable, `summary:text`, `skills:jsonb`)
-  `has_many :experiences`/`:educations`/`:pdf_requests`, `dependent: :destroy` on all three.
-  `Experience` (`company`/`title` required, `bullets:jsonb`) and `Education` (`school` required)
-  `belongs_to :resume`. `Resume.owner_token` (nullable, indexed) is a placeholder for a real
-  `user_id` FK once auth lands — populated from `current_owner_token`, enforced only at the
-  controller layer. `Resume.last_accessed_at` (issue #59) is bumped by
-  `ApplicationController#find_owned_resume!` — the single lookup every owner-scoped read routes
-  through — with `update_column`, deliberately not `update!`/`touch`: touching `updated_at` here
-  would invalidate `Resume::CachedOptimization`'s cache key on every view (ADR-0021, ADR-0026).
-  `Resume.purge_stale!` deletes (`in_batches.destroy_all`, so `dependent: :destroy` cascades to
-  experiences/educations/pdf_requests, which have no `ON DELETE CASCADE` at the DB level) a
-  claimed resume (`owner_token` present) `LAST_ACCESSED_PURGE_AFTER` (7 days) after its last
-  access, and a never-claimed one (`owner_token` nil — the only population actually,
-  permanently unreachable, since nothing ever sets that column a second time)
-  `ORPHAN_PURGE_AFTER` (24 hours) after creation. Returns `{ claimed:, orphan: }` counts;
-  `Resume::PurgeStaleJob` (`app/jobs/resume/`) calls it and logs them, scheduled from
-  `config/recurring.yml`. ADR-0026 has the retention-window reasoning, including why it departs
-  from issue #59's own 30-day/`updated_at` proposal.
+  `belongs_to :user`, `has_many :experiences`/`:educations`/`:pdf_requests`, `dependent: :destroy`
+  on all three. `Experience` (`company`/`title` required, `bullets:jsonb`) and `Education`
+  (`school` required) `belongs_to :resume`. `Resume.user_id` (**NOT NULL**, FK to `users`)
+  replaced ADR-0007's `owner_token` placeholder (issue #121) — `Resume::Import` (below) sets it
+  in the same `Resume.create!` call that persists everything else, not a second `update!`
+  afterward, so a resume can never exist without an owner even transiently. `User has_many
+  :resumes`, no `dependent:` — no account-deletion feature exists anywhere in the app yet;
+  destroying a `User` that still owns resumes raises the FK violation rather than cascading.
+  `Resume.last_accessed_at` (issue #59) is bumped by `ApplicationController#find_owned_resume!` —
+  the single lookup every owner-scoped read routes through — with `update_column`, deliberately
+  not `update!`/`touch`: touching `updated_at` here would invalidate
+  `Resume::CachedOptimization`'s cache key on every view (ADR-0021). Also set at creation by
+  `Resume::Import`, so it's never left `nil` until a first later visit. `Resume.purge_stale!`
+  deletes (`in_batches.destroy_all`, so `dependent: :destroy` cascades to experiences/educations/
+  pdf_requests, which have no `ON DELETE CASCADE` at the DB level) any resume
+  `LAST_ACCESSED_PURGE_AFTER` (1 month) after its last access — single-tier, and never touches
+  `users` or `usage_counters` (a purged owner's identity and issue #122 credit balance are a
+  permanent liability, asserted directly in `ResumeTest`). Returns a plain count;
+  `Resume::PurgeStaleJob` (`app/jobs/resume/`) calls it and logs it, scheduled from
+  `config/recurring.yml`. ADR-0034 (superseding ADR-0026) has the retention-window reasoning,
+  including why the old two-tier "claimed"/"orphan" split is gone rather than kept dormant now
+  that `user_id` is NOT NULL — an ownerless resume is no longer a rare race outcome, it's a state
+  the schema cannot produce.
   `Resume::PdfRequest` (`resume_pdf_requests`: `download_id:uuid` unique,
   `text` **Active-Record-encrypted, non-deterministic**, `created_at` only) holds a download's
   pasted job description so it does *not* travel as an Active Job argument — Solid Queue
@@ -233,13 +241,15 @@ Otherwise standard Rails 8 conventions.
   `(subject_token, action_type, period, period_start)`, and `.consume!` is a **single
   `upsert_all` with `on_duplicate: count = count + 1 ... RETURNING count`** — read-then-write
   loses updates exactly when two requests for one subject overlap, which is the case a rate limit
-  exists to catch. `subject_token` holds `current_owner_token` and **must never be logged**: it is
-  the credential `find_owned_resume!` authorizes against. `.purge_stale!` (`RETAIN_FOR`, 7 days —
-  raise it before adding a monthly period) runs daily from `config/recurring.yml`.
+  exists to catch. `subject_token` holds the signed-in user's id, as a string (issue #121,
+  ADR-0033 — a plain string column rather than a `users` FK, since nothing here needs referential
+  integrity from it) and **must never be logged** (ADR-0015). `.purge_stale!` (`RETAIN_FOR`, 7
+  days — raise it before adding a monthly period) runs daily from `config/recurring.yml`.
 - **`app/services/resume/`**: import/extraction under the `Resume::` namespace.
-  - `Import.call(file:, strategy: "llm" | "regex")` — infers pdf/json from the filename, picks
-    the matching extractor, persists via `create!` (rolls back on invalid data rather than
-    persisting partial results). Records the extractor in `resumes.source`.
+  - `Import.call(file:, strategy: "llm" | "regex", user:)` — infers pdf/json from the filename,
+    picks the matching extractor, persists via `create!` (rolls back on invalid data rather than
+    persisting partial results), setting `user:` and `last_accessed_at` in that same call (issue
+    #121, ADR-0034) rather than in a second `update!`. Records the extractor in `resumes.source`.
   - `Extractors::Llm` — sends the file to Claude (`with_schema`). Verifies every field against
     the file's own text before returning it (`FidelityCheck` below): an unverified `company`/
     `title`/`school` drops the whole entry, unverified bullets/skills/dates are dropped/nulled in
@@ -341,20 +351,24 @@ Otherwise standard Rails 8 conventions.
   independent daily limits, because they cost unequally; the issue body names only the last three,
   but the upload is a real provider request and the first thing a visitor can trigger (ADR-0023).
   Increments then compares, like `LlmCallGuard.record_call!`, so two concurrent requests can't both
-  read an under-limit count. **The subject is a browser session, not a person** —
-  `current_owner_token`, because no `User` model exists (ADR-0007) — so an incognito window is a
-  fresh quota. That is why #45's comment claiming #22 unblocks public signup is wrong: the
-  prerequisite is real auth with this attached to it. Limits come from
+  read an under-limit count. **The subject is the signed-in user, not a browser session**
+  (`Current.user.id.to_s`, issue #121, ADR-0033 — superseding ADR-0023's session-token framing now
+  that accounts are mandatory, #120). That is also what makes issue #106 (the global cap has no
+  caller dimension) solvable — a caller dimension now exists to give it — but #106 is a separate,
+  open decision, cross-referenced by ADR-0033, not resolved by it. Limits come from
   `RATE_LIMIT_<ACTION>_PER_DAY`, with **no production default**: `validate_configuration!` (from
   `config/initializers/usage_quota.rb`, same shape and `SECRET_KEY_BASE_DUMMY` exemption as
   ADR-0020) refuses to boot without all four. `Usage::Quota::ExceededError` is **not** a subclass
   of `DailyLimitExceededError` — "you're out of budget" and "we're out of budget" are different
   facts with different remedies, so they get different flash wording.
-- **`app/controllers/resumes_controller.rb`**: `new`/`create`/`show`. `create` passes the upload
-  straight into `Resume::Import.call` (strategy hardcoded to `"llm"`, not user-selectable),
-  enforcing `MAX_UPLOAD_BYTES` first (ADR-0017). Rescues invalid/unsupported-format and
-  file-parsing errors (ADR-0016) by re-rendering `:new` with a flash. `show` scopes by
-  `current_owner_token`.
+- **`app/controllers/resumes_controller.rb`**: `index`/`new`/`create`/`show`. `index` (issue
+  #121) lists `Current.user.resumes`, ordered by `last_accessed_at` desc — root points here
+  (`config/routes.rb`), not at `new`, so a signed-in user lands on their own resume history
+  rather than an empty upload form. `create` passes the upload straight into `Resume::Import.call`
+  (strategy hardcoded to `"llm"`, not user-selectable, `user: Current.user`), enforcing
+  `MAX_UPLOAD_BYTES` first (ADR-0017). Rescues invalid/unsupported-format and file-parsing errors
+  (ADR-0016) by re-rendering `:new` with a flash. `show` scopes via `find_owned_resume!`, keyed on
+  `user_id`.
 - **`app/controllers/job_descriptions_controller.rb`**: `create` wires the job-description
   textarea on `resumes/show.html.erb` to `JobDescription::Extractor` → `Comparison` →
   `MatchScore`, enforcing `MAX_JOB_DESCRIPTION_LENGTH` (ADR-0017). `MatchScore.call`'s `nil` case
@@ -416,9 +430,11 @@ Otherwise standard Rails 8 conventions.
   jobs hourly, runs `Resume::PdfRequest.purge_stale!` every 5 minutes,
   `Usage::Counter.purge_stale!` daily (nothing here is time-critical: no user content, and
   `RETAIN_FOR` leaves six days of slack over the one-day period it enforces), and
-  `Resume::PurgeStaleJob` hourly (issue #59, ADR-0026) — a `class:` entry rather than the other
-  two's `command:`, since the job logs the destroyed-record counts `Resume.purge_stale!` returns.
-  Nothing runs this in dev/test (and nothing runs it in production yet either — issue #48), so
+  `Resume::PurgeStaleJob` hourly (issue #59, ADR-0034) — a `class:` entry rather than the other
+  two's `command:`, since the job logs the destroyed count `Resume.purge_stale!` returns. Hourly
+  spreads a month's worth of matches (`LAST_ACCESSED_PURGE_AFTER`) across many small batches
+  rather than one large one landing at once. Nothing runs this in dev/test (and nothing runs it in
+  production yet either — issue #48), so
   `test/config/recurring_test.rb` asserts the entries resolve and that each purge interval stays
   under the window it enforces instead.
 - **Active Record Encryption**: keys live in `config/credentials.yml.enc`. `config/environments/

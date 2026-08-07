@@ -53,9 +53,11 @@ class ApplicationController < ActionController::Base
   #
   # Logs the exception class and the action type. The action type is an
   # internal enum from Usage::Quota::ACTION_TYPES, not user content. The
-  # subject token is deliberately absent: it is the session credential
-  # find_owned_resume! authorizes against, so logging it would put a working
-  # key to someone's resume in the log file (ADR-0015).
+  # subject (Current.user.id, issue #121) is deliberately absent too — it's no
+  # longer a bearer credential the way the old session token was, but it
+  # still identifies a specific account holder, and there's no operational
+  # need for it here that the exception class and action type don't already
+  # cover (ADR-0015).
   rescue_from Usage::Quota::ExceededError do |e|
     Rails.logger.warn("#{controller_name}##{action_name}: #{e.class} (#{e.action})")
     redirect_back_or_to root_path, flash: { alert:
@@ -85,17 +87,13 @@ class ApplicationController < ActionController::Base
 
   private
 
-  # Placeholder for real ownership until the Rails 8 auth generator lands (no
-  # User model exists yet). Ties a Resume to "whoever uploaded it" via an
-  # opaque per-browser-session token rather than a real account. Replace with
-  # a user_id FK once auth exists — not meant to be a permanent design.
-  def current_owner_token
-    session[:owner_token] ||= SecureRandom.hex(32)
-  end
-
   # Shared owner-scoped lookup for any controller acting on a Resume
   # (ResumesController#show, JobDescriptionsController#create,
   # PreviewsController#create, DownloadsController#create/#ready/#show).
+  # Current.user is always present here — Authentication's require_
+  # authentication before_action runs before every controller action in this
+  # app (issue #120) — so resumes.user_id's NOT NULL guarantee and this
+  # lookup's scoping are the same fact viewed from two ends (issue #121).
   #
   # Also the single choke point for Resume::LAST_ACCESSED_PURGE_AFTER (issue
   # #59): every read path routes through here, so bumping last_accessed_at
@@ -109,14 +107,16 @@ class ApplicationController < ActionController::Base
   # download pays for one bullet-rewrite fan-out, not two). update_column
   # skips both validations and the updated_at touch.
   def find_owned_resume!(id)
-    Resume.find_by!(id: id, owner_token: current_owner_token).tap do |resume|
+    Resume.find_by!(id: id, user_id: Current.user.id).tap do |resume|
       resume.update_column(:last_accessed_at, Time.current)
     end
   end
 
-  # Issue #22. Charges one use of `action` to this session and raises
+  # Issue #22. Charges one use of `action` to this signed-in user and raises
   # Usage::Quota::ExceededError — handled by the rescue_from above — if that
-  # puts it over the daily limit.
+  # puts it over the daily limit. Subject is Current.user.id.to_s (issue #121,
+  # ADR-0033) — a real, durable person, not a per-browser-session token that a
+  # fresh incognito window could shed.
   #
   # Called explicitly at the top of each quotaed action rather than declared as
   # a before_action, because in three of the four it has to run *after* the
@@ -131,6 +131,6 @@ class ApplicationController < ActionController::Base
   # here spends no Anthropic request, no Solid Queue worker, and writes no
   # job-description row.
   def enforce_quota!(action)
-    Usage::Quota.consume!(subject: current_owner_token, action: action)
+    Usage::Quota.consume!(subject: Current.user.id.to_s, action: action)
   end
 end
