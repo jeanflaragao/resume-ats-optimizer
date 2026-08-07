@@ -1,5 +1,6 @@
 require "test_helper"
 require "prawn"
+require "open3"
 
 class Resume::Extractors::LlmTest < ActiveSupport::TestCase
   FakeChat = Struct.new(:content_to_return) do
@@ -387,12 +388,74 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     end
   end
 
+  # pdftotext (issue #126) fails a missing file with a clean non-zero exit
+  # rather than raising inside the process the way PDF::Reader did -- this
+  # pins the new, deliberately-loud failure shape (see
+  # #extract_pdf_text's raise), not the old error class.
   test "raises a clear error when the file doesn't exist" do
     fake_chat = FakeChat.new(base_extraction)
 
-    assert_raises(ArgumentError) do
+    error = assert_raises(Resume::Extractors::Llm::PdfExtractionError) do
       Resume::Extractors::Llm.call(file_path: "tmp/does_not_exist.pdf", chat: fake_chat)
     end
+    assert_match(/pdftotext exited/, error.message)
+  end
+
+  # Regression guard for issue #126: pdf-reader (the previous source_text
+  # implementation) corrupted diacritics badly enough to drop a correctly
+  # extracted, correctly spelled real name -- confirmed against a real
+  # LaTeX-exported CV, where a detached accent landed several characters from
+  # its base letter and a base letter was dropped outright. Not reproducible
+  # here with byte-for-byte fidelity: that corruption is specific to how
+  # LaTeX composes accented glyphs (kerned base+accent pairs), which Prawn's
+  # base-14 font doesn't do -- Prawn's own accented output already round-trips
+  # correctly even under the old pdf-reader path (verified directly before
+  # writing this test). What this proves instead, and what actually matters as
+  # an ongoing regression guard: the new pdftotext-based source_text keeps a
+  # real diacritic-bearing name it's given, so a future change back to a lossy
+  # extraction method would be caught here even without a LaTeX fixture.
+  # Deliberately checks name only, not summary: summary goes through
+  # FidelityCheck, not WordBoundaryMatchable, and FidelityCheck has its own,
+  # separate, pre-existing bug with accented text -- its significant_words
+  # tokenizer strips non-ASCII characters (`gsub(/[^a-z0-9\s]/, " ")`), which
+  # splits a word like "experiência" into "experi"/"ncia" fragments that then
+  # fail to match even against byte-identical source text. Confirmed directly
+  # (FidelityCheck.call with candidate_text == source_text, both containing
+  # "experiência", still returns passed: false) and out of scope for #126,
+  # which is about source_text extraction, not FidelityCheck's tokenizer --
+  # flagged to the user rather than folded in here or silently worked around.
+  test "keeps a name with diacritics that is genuinely present in the PDF" do
+    accented_name = "João Aragão Vasconcelos"
+    fake_chat = FakeChat.new(base_extraction.deep_merge(
+      "name" => accented_name,
+      "experiences" => [],
+      "educations" => []
+    ))
+
+    result = Resume::Extractors::Llm.call(file_path: accented_pdf_path, chat: fake_chat)
+
+    assert_equal accented_name, result["name"]
+  end
+
+  # The old PDF::Reader-based source_text could never fail this way -- a gem
+  # call either returns text or raises inside the same process. Shelling out
+  # to an external binary (issue #126) adds a real new failure mode (missing
+  # binary, non-zero exit), and the fix is deliberately not to fall back
+  # silently to a worse extraction on that failure -- it should be as loud as
+  # any other environment misconfiguration.
+  test "raises a clear error rather than silently falling back when pdftotext fails" do
+    fake_chat = FakeChat.new(base_extraction)
+    original_capture2 = Open3.method(:capture2)
+    Open3.define_singleton_method(:capture2) do |*|
+      [ "", Struct.new(:success?, :exitstatus).new(false, 1) ]
+    end
+
+    error = assert_raises(Resume::Extractors::Llm::PdfExtractionError) do
+      Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat)
+    end
+    assert_match(/pdftotext exited 1/, error.message)
+  ensure
+    Open3.define_singleton_method(:capture2, original_capture2)
   end
 
   private
@@ -437,6 +500,18 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
         text "B.S. Computer Science"
         text "Skills"
         text "Ruby, Rails, PostgreSQL"
+      end
+      path
+    end
+  end
+
+  def accented_pdf_path
+    @accented_pdf_path ||= begin
+      path = Rails.root.join("tmp/llm_extractor_test_accented_#{object_id}_#{rand(10_000)}.pdf").to_s
+      Prawn::Document.generate(path) do
+        text "João Aragão Vasconcelos"
+        text "joao@example.com"
+        text "555-123-4567"
       end
       path
     end

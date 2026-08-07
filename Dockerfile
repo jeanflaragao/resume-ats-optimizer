@@ -15,8 +15,11 @@ FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
 WORKDIR /rails
 
 # Install base packages
+# poppler-utils: pdftotext, used by Resume::Extractors::Llm#source_text to verify
+# extracted PDF fields against the file's own text (issue #126) -- pdf-reader's
+# stream-order reading corrupts accented characters that pdftotext reads correctly.
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y curl libjemalloc2 libvips postgresql-client && \
+    apt-get install --no-install-recommends -y curl libjemalloc2 libvips postgresql-client poppler-utils && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Set production environment
