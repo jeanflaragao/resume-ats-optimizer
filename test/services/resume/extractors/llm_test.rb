@@ -390,12 +390,12 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
 
   # pdftotext (issue #126) fails a missing file with a clean non-zero exit
   # rather than raising inside the process the way PDF::Reader did -- this
-  # pins the new, deliberately-loud failure shape (see
-  # #extract_pdf_text's raise), not the old error class.
+  # pins the new, deliberately-loud failure shape (see Resume::PdfText's
+  # raise), not the old error class.
   test "raises a clear error when the file doesn't exist" do
     fake_chat = FakeChat.new(base_extraction)
 
-    error = assert_raises(Resume::Extractors::Llm::PdfExtractionError) do
+    error = assert_raises(Resume::PdfText::ExtractionError) do
       Resume::Extractors::Llm.call(file_path: "tmp/does_not_exist.pdf", chat: fake_chat)
     end
     assert_match(/pdftotext exited/, error.message)
@@ -450,7 +450,7 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
       [ "", Struct.new(:success?, :exitstatus).new(false, 1) ]
     end
 
-    error = assert_raises(Resume::Extractors::Llm::PdfExtractionError) do
+    error = assert_raises(Resume::PdfText::ExtractionError) do
       Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat)
     end
     assert_match(/pdftotext exited 1/, error.message)
