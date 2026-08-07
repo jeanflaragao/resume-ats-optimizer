@@ -1,0 +1,14 @@
+<div class="max-w-xl mx-auto w-full">
+  <h1 class="text-2xl font-semibold mb-4">Processing your payment</h1>
+
+  <%= turbo_stream_from "checkout_#{@checkout_session_id}" %>
+
+  <%# data-controller/-url-value: fallback for the grant landing before the
+      turbo_stream_from subscription above has connected -- see
+      Payments::CheckoutsController#ready, the same race
+      DownloadsController#ready already handles (issue #72/ADR-0018). %>
+  <div id="checkout_status" data-controller="checkout-status"
+       data-checkout-status-url-value="<%= ready_payments_checkout_path(session_id: @checkout_session_id) %>">
+    <p class="text-gray-600">Confirming your payment... this usually takes a few seconds.</p>
+  </div>
+</div>
