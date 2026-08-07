@@ -28,7 +28,7 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0018 | Embed Liberation Sans with a DejaVu Sans fallback, and refuse to render scripts no font covers | Accepted | [0018-embed-liberation-sans-with-dejavu-fallback.md](0018-embed-liberation-sans-with-dejavu-fallback.md) |
 | 0019 | Count LLM calls at the provider-call boundary, and fail closed when the count is unavailable | Accepted | [0019-count-llm-calls-at-the-provider-boundary.md](0019-count-llm-calls-at-the-provider-boundary.md) |
 | 0020 | Refuse to boot production on LlmCallGuard's local-testing defaults | Accepted | [0020-fail-closed-llm-guard-configuration-in-production.md](0020-fail-closed-llm-guard-configuration-in-production.md) |
-| 0021 | Cache the optimization result between preview and download, keyed by a job-description digest | Accepted | [0021-cache-the-optimization-result-between-preview-and-download.md](0021-cache-the-optimization-result-between-preview-and-download.md) |
+| 0021 | Cache the optimization result between preview and download, keyed by a job-description digest | TTL value superseded by 0035 | [0021-cache-the-optimization-result-between-preview-and-download.md](0021-cache-the-optimization-result-between-preview-and-download.md) |
 | 0022 | Pass the download job a job-description reference, not the text | Accepted | [0022-job-description-reference-instead-of-queue-argument.md](0022-job-description-reference-instead-of-queue-argument.md) |
 | 0023 | Per-session usage quotas in Postgres, alongside (not instead of) the global LLM cap | Superseded by 0033 | [0023-per-session-usage-quotas-in-postgres.md](0023-per-session-usage-quotas-in-postgres.md) |
 | 0024 | Add a CJK fallback font, and refuse scripts requiring text shaping even when glyphs exist | Accepted | [0024-refuse-scripts-requiring-shaping.md](0024-refuse-scripts-requiring-shaping.md) |
@@ -42,3 +42,4 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0032 | Google OAuth authentication, superseding the Rails 8 auth generator plan | Accepted | [0032-google-oauth-authentication.md](0032-google-oauth-authentication.md) |
 | 0033 | Key Usage::Quota's subject on the signed-in user, not the session | Accepted | [0033-user-id-usage-quotas.md](0033-user-id-usage-quotas.md) |
 | 0034 | One month from last access, single-tier, credits never purged | Accepted | [0034-one-month-user-scoped-retention.md](0034-one-month-user-scoped-retention.md) |
+| 0035 | Credit balance and 30-day unlimited window | Accepted | [0035-credit-balance-and-unlimited-window.md](0035-credit-balance-and-unlimited-window.md) |
