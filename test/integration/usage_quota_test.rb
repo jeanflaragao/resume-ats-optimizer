@@ -44,10 +44,10 @@ class UsageQuotaTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path
     follow_redirect!
     assert_includes response.body, "daily limit for job description analyses"
-    # The handler logs the class and the action type -- never the session token
-    # it authorizes with, and never user content (ADR-0015).
+    # The handler logs the class and the action type -- never the signed-in
+    # user's id, and never user content (ADR-0015).
     assert_includes log_output, "Usage::Quota::ExceededError (requirement_extraction)"
-    assert_not_includes log_output, session[:owner_token].to_s
+    assert_not_includes log_output, users(:jordan).id.to_s
   end
 
   test "a preview past the quota is refused without rendering an optimized resume" do
@@ -109,7 +109,7 @@ class UsageQuotaTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     assert_includes response.body, "right-to-left"
-    assert_nil Usage::Counter.find_by(subject_token: session[:owner_token], action_type: "pdf_generation")
+    assert_nil Usage::Counter.find_by(subject_token: users(:jordan).id.to_s, action_type: "pdf_generation")
   end
 
   # The cheap rejections come first, so a request that never had a chance to

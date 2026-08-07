@@ -1,7 +1,9 @@
 # ADR-0026: Purge stale resumes with owner-scoped retention
 
 ## Status
-Accepted
+Superseded by [ADR-0034](0034-one-month-user-scoped-retention.md) — issue #121's durable
+`user_id` ownership removed the "orphan" tier's premise and reopened the retention window this
+ADR chose while there was no durable owner to come back to.
 
 ## Context
 

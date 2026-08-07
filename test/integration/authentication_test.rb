@@ -18,7 +18,7 @@ class AuthenticationTest < ActionDispatch::IntegrationTest
   # the callback URL, exactly like the real request phase redirects to Google
   # -- it's only the callback request that carries the mocked auth hash
   # (mock_callback_call). One follow_redirect! reaches it.
-  test "signing in with Google creates a user and session, and lands back on the upload page" do
+  test "signing in with Google creates a user and session, and lands back on the resume index" do
     mock_google_auth
 
     assert_difference [ "User.count", "Identity.count", "Session.count" ], 1 do
@@ -30,7 +30,7 @@ class AuthenticationTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  test "signing out clears the session, so the previously-reachable upload page redirects to sign-in again" do
+  test "signing out clears the session, so the previously-reachable resume index redirects to sign-in again" do
     mock_google_auth
     post "/auth/google_oauth2"
     follow_redirect!

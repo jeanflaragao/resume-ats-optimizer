@@ -2,7 +2,7 @@ require "test_helper"
 
 class Resume::ImportTest < ActiveSupport::TestCase
   test "persists a Resume with ordered experiences and educations, parsing varied date formats" do
-    resume = Resume::Import.call(file: fixture_path(valid_json), strategy: "regex")
+    resume = Resume::Import.call(file: fixture_path(valid_json), strategy: "regex", user: users(:jordan))
 
     assert_equal "json_mapper", resume.source
     assert_equal "Jane Doe", resume.name
@@ -33,7 +33,7 @@ class Resume::ImportTest < ActiveSupport::TestCase
       educations: []
     }.to_json
 
-    resume = Resume::Import.call(file: fixture_path(json), strategy: "regex")
+    resume = Resume::Import.call(file: fixture_path(json), strategy: "regex", user: users(:jordan))
 
     assert_equal "Acme Corp", resume.experiences.first.company
     assert_nil resume.experiences.first.starts_on
@@ -45,7 +45,7 @@ class Resume::ImportTest < ActiveSupport::TestCase
 
   test "raises for an unknown strategy" do
     assert_raises(Resume::Import::UnsupportedFormatError) do
-      Resume::Import.call(file: fixture_path(valid_json), strategy: "nope")
+      Resume::Import.call(file: fixture_path(valid_json), strategy: "nope", user: users(:jordan))
     end
   end
 
@@ -54,7 +54,7 @@ class Resume::ImportTest < ActiveSupport::TestCase
     File.write(path, "hello")
 
     assert_raises(Resume::Import::UnsupportedFormatError) do
-      Resume::Import.call(file: path, strategy: "regex")
+      Resume::Import.call(file: path, strategy: "regex", user: users(:jordan))
     end
   ensure
     File.delete(path) if path && File.exist?(path)
@@ -65,7 +65,7 @@ class Resume::ImportTest < ActiveSupport::TestCase
 
     assert_no_difference [ "Resume.count", "Experience.count" ] do
       assert_raises(ActiveRecord::RecordInvalid) do
-        Resume::Import.call(file: fixture_path(invalid_json), strategy: "regex")
+        Resume::Import.call(file: fixture_path(invalid_json), strategy: "regex", user: users(:jordan))
       end
     end
   end
@@ -88,7 +88,7 @@ class Resume::ImportTest < ActiveSupport::TestCase
     })
 
     resume = assert_difference "Resume.count", 1 do
-      Resume::Import.call(file: fixture_path(source_text), strategy: "llm", chat: fake_chat)
+      Resume::Import.call(file: fixture_path(source_text), strategy: "llm", user: users(:jordan), chat: fake_chat)
     end
 
     assert_equal [ "Acme Corp" ], resume.experiences.map(&:company)
@@ -100,14 +100,14 @@ class Resume::ImportTest < ActiveSupport::TestCase
       "skills" => [], "experiences" => [], "educations" => []
     })
 
-    resume = Resume::Import.call(file: fixture_path(valid_json), strategy: "llm", chat: fake_chat)
+    resume = Resume::Import.call(file: fixture_path(valid_json), strategy: "llm", user: users(:jordan), chat: fake_chat)
 
     assert_equal "llm", resume.source
     assert_equal "Jane Doe", resume.name
   end
 
   test "does not forward chat: to extractors that don't accept it" do
-    resume = Resume::Import.call(file: fixture_path(valid_json), strategy: "regex", chat: FakeChat.new({}))
+    resume = Resume::Import.call(file: fixture_path(valid_json), strategy: "regex", user: users(:jordan), chat: FakeChat.new({}))
 
     assert_equal "json_mapper", resume.source
   end

@@ -1,7 +1,9 @@
 # ADR-0023: Per-session usage quotas in Postgres, alongside (not instead of) the global LLM cap
 
 ## Status
-Accepted
+Superseded by [ADR-0033](0033-user-id-usage-quotas.md) — issue #121 replaced the per-session
+`subject` this ADR establishes with the signed-in user's id, once #120 made real accounts
+mandatory.
 
 ## Context
 

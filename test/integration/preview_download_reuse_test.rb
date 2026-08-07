@@ -210,10 +210,10 @@ class PreviewDownloadReuseTest < ActionDispatch::IntegrationTest
     Resume::Pdf.define_singleton_method(:call, original)
   end
 
-  # Uploaded through the real controller so the resume carries this session's
-  # owner_token, then given experiences directly: the import path's extraction
-  # is not what these tests are about. Uploaded before real calls are enabled,
-  # so the import itself costs nothing and is not counted.
+  # Uploaded through the real controller so the resume is owned by the
+  # signed-in user, then given experiences directly: the import path's
+  # extraction is not what these tests are about. Uploaded before real calls
+  # are enabled, so the import itself costs nothing and is not counted.
   def resume_with_experiences
     path = Rails.root.join("tmp/preview_download_reuse_#{SecureRandom.hex(4)}.json").to_s
     File.write(path, { note: "Stub Candidate, stub@example.com" }.to_json)

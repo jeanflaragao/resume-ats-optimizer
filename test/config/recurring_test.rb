@@ -46,9 +46,7 @@ class RecurringConfigTest < ActiveSupport::TestCase
     {
       purge_stale_pdf_requests: Resume::PdfRequest::PURGE_AFTER,
       purge_stale_usage_counters: Usage::Counter::RETAIN_FOR,
-      # The shorter of Resume's two windows -- the schedule must outrun both,
-      # so it only needs checking against whichever one is tighter.
-      purge_stale_resumes: Resume::ORPHAN_PURGE_AFTER
+      purge_stale_resumes: Resume::LAST_ACCESSED_PURGE_AFTER
     }.each do |task, window|
       cron = Fugit.parse(@production[task][:schedule])
       first = cron.next_time(Time.current)

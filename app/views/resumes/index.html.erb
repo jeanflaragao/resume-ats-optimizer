@@ -1,0 +1,25 @@
+<div class="max-w-xl mx-auto w-full">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-semibold">Your resumes</h1>
+    <%= link_to "Upload a resume", new_resume_path, class: "bg-blue-600 text-white rounded px-4 py-2 cursor-pointer" %>
+  </div>
+
+  <% if @resumes.any? %>
+    <ul class="flex flex-col gap-4">
+      <% @resumes.each do |resume| %>
+        <li class="border rounded p-4">
+          <%= link_to (resume.name.presence || "Untitled resume"), resume_path(resume),
+                class: "text-lg font-medium text-blue-700 hover:underline" %>
+          <p class="text-sm text-gray-500 mt-1">
+            Last viewed <%= time_ago_in_words(resume.last_accessed_at) %> ago —
+            removed automatically around
+            <%= l(resume.last_accessed_at + Resume::LAST_ACCESSED_PURGE_AFTER, format: :long) %>
+            unless you revisit it.
+          </p>
+        </li>
+      <% end %>
+    </ul>
+  <% else %>
+    <p class="text-gray-600">You haven't uploaded a resume yet. Upload one to get started.</p>
+  <% end %>
+</div>

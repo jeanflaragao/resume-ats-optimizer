@@ -3,6 +3,11 @@
 # can't satisfy Experience/Education validations (e.g. a regex parse that
 # couldn't find a company name), the whole import rolls back and raises
 # rather than silently persisting partial/garbage data.
+#
+# Takes user: and sets it in the same Resume.create! call that persists
+# everything else (issue #121, ADR-0034) -- not a second update! after this
+# method returns. resumes.user_id is NOT NULL; the only way to keep that true
+# is for the row to never exist without it, even transiently.
 class Resume::Import
   class UnsupportedFormatError < StandardError; end
 
@@ -20,13 +25,14 @@ class Resume::Import
 
   UNPARSED_DATE_REASON = "not recognized as a date"
 
-  def self.call(file:, strategy:, chat: LlmCallGuard.chat)
-    new(file: file, strategy: strategy, chat: chat).call
+  def self.call(file:, strategy:, user:, chat: LlmCallGuard.chat)
+    new(file: file, strategy: strategy, user: user, chat: chat).call
   end
 
-  def initialize(file:, strategy:, chat:)
+  def initialize(file:, strategy:, user:, chat:)
     @file = file
     @strategy = strategy
+    @user = user
     @chat = chat
   end
 
@@ -37,7 +43,7 @@ class Resume::Import
 
   private
 
-  attr_reader :file, :strategy, :chat
+  attr_reader :file, :strategy, :user, :chat
 
   def extractor
     @extractor ||= begin
@@ -65,6 +71,12 @@ class Resume::Import
   def persist(data)
     Resume.transaction do
       resume = Resume.create!(
+        user: user,
+        # Starts the issue #59 retention clock immediately rather than leaving
+        # it nil (which would misread as never having been created at all --
+        # there is no other state to distinguish it from now that every
+        # resume has an owner from the moment it exists).
+        last_accessed_at: Time.current,
         name: data["name"],
         email: data["email"],
         phone: data["phone"],
