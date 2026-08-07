@@ -32,6 +32,18 @@ class AuthenticationConfigGuardBootTest < ActiveSupport::TestCase
     "GOOGLE_OAUTH_CLIENT_SECRET" => "test-client-secret"
   }.freeze
 
+  # Issue #123's Payments::ConfigGuard also loads after this one
+  # alphabetically ("authentication_..." < "payments_config_guard") -- same
+  # reasoning as QUOTA_ENV/OAUTH_ENV, needed only for the "boots normally"
+  # counterweight below.
+  STRIPE_ENV = {
+    "STRIPE_SECRET_KEY" => "sk_test_not_a_real_key",
+    "STRIPE_WEBHOOK_SECRET" => "whsec_not_a_real_secret",
+    "STRIPE_PRICE_ID_5_CREDITS" => "price_test_5",
+    "STRIPE_PRICE_ID_15_CREDITS" => "price_test_15",
+    "STRIPE_PRICE_ID_UNLIMITED_30_DAYS" => "price_test_unlimited"
+  }.freeze
+
   def boot_production(**overrides)
     Open3.capture2e(
       BASE_ENV.merge(overrides.transform_keys(&:to_s)),
@@ -61,7 +73,7 @@ class AuthenticationConfigGuardBootTest < ActiveSupport::TestCase
   # The counterweight: without this, the assertions above would pass against
   # an app that could not boot production for some entirely unrelated reason.
   test "a production boot with everything configured starts normally" do
-    output = boot_production(**QUOTA_ENV, **OAUTH_ENV)
+    output = boot_production(**QUOTA_ENV, **OAUTH_ENV, **STRIPE_ENV)
 
     assert_match(/BOOTED-OK/, output)
     refute_match(/ConfigurationError/, output)

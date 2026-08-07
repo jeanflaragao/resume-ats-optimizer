@@ -73,10 +73,21 @@ class ResumeTest < ActiveSupport::TestCase
   # that also destroyed the owner (`stale.each { |r| r.user.destroy! }`
   # spliced into a local copy of purge_stale!) and confirming this test goes
   # red, then reverting -- recorded in the PR body.
-  test "purge_stale! does not delete the resume's owner, touch their usage counters, or touch their credit balance" do
+  # Issue #123: stripe_customer_id and the payment_grants audit trail are the
+  # same shape of permanent liability as credits/unlimited_until -- they live
+  # on users (stripe_customer_id) or FK to users, not resumes
+  # (payment_grants), so Resume.purge_stale!'s resumes-only where clause
+  # structurally cannot reach either. Extended onto this same test rather
+  # than added as a new one, per the pattern ADR-0034 itself established for
+  # exactly this test.
+  test "purge_stale! does not delete the resume's owner, touch their usage counters, credit balance, stripe customer id, or payment grants" do
     user = users(:jordan)
-    user.update!(credits: 5, unlimited_until: 10.days.from_now)
+    user.update!(credits: 5, unlimited_until: 10.days.from_now, stripe_customer_id: "cus_permanent123")
     Usage::Counter.consume!(subject_token: user.id.to_s, action_type: "resume_extraction")
+    grant = Payments::Grant.create!(
+      user: user, stripe_event_id: "evt_permanent", stripe_checkout_session_id: "cs_permanent",
+      stripe_price_id: "price_permanent", credits: 5
+    )
     Resume.create!(user: user, last_accessed_at: Resume::LAST_ACCESSED_PURGE_AFTER.ago - 1.minute)
 
     Resume.purge_stale!
@@ -86,5 +97,7 @@ class ResumeTest < ActiveSupport::TestCase
     user.reload
     assert_equal 5, user.credits
     assert_in_delta 10.days.from_now, user.unlimited_until, 1.second
+    assert_equal "cus_permanent123", user.stripe_customer_id
+    assert Payments::Grant.exists?(grant.id)
   end
 end
