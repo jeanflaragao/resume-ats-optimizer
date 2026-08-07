@@ -23,7 +23,10 @@ class Resume::OptimizedPdfJob < ApplicationJob
   # future argument, not the fix. See ADR-0022 before removing it.
   self.log_arguments = false
 
-  CACHE_EXPIRY = 15.minutes
+  # One week (issue #122), kept equal to Resume::CachedOptimization::CACHE_TTL
+  # -- see that constant's comment for why the two numbers move together and
+  # why this is also a real, deliberate charging boundary.
+  CACHE_EXPIRY = 1.week
 
   GENERIC_FAILURE_MESSAGE = "Something went wrong generating your PDF. Please try again.".freeze
 

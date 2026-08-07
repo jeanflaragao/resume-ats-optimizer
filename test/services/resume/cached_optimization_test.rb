@@ -200,6 +200,107 @@ class Resume::CachedOptimizationTest < ActiveSupport::TestCase
     end
   end
 
+  # --- Issue #122: guard_usable! ----------------------------------------------
+
+  test "guard_usable! passes silently for a resume with a name and at least one experience" do
+    assert_nil Resume::CachedOptimization.guard_usable!(resume: resumes(:one))
+  end
+
+  test "guard_usable! raises for a resume with a blank name" do
+    resume = resumes(:one)
+    resume.update_column(:name, nil)
+
+    assert_raises(Resume::CachedOptimization::UnusableResumeError) do
+      Resume::CachedOptimization.guard_usable!(resume: resume)
+    end
+  end
+
+  test "guard_usable! raises for a resume with zero experiences even when it has a name" do
+    resume = resumes(:one)
+    resume.experiences.destroy_all
+
+    assert_raises(Resume::CachedOptimization::UnusableResumeError) do
+      Resume::CachedOptimization.guard_usable!(resume: resume.reload)
+    end
+  end
+
+  test "guard_usable! does not raise for a missing summary alone -- acceptable degradation, not critical" do
+    resume = resumes(:one)
+    resume.update_column(:summary, nil)
+
+    assert_nil Resume::CachedOptimization.guard_usable!(resume: resume)
+  end
+
+  # --- Issue #122: .cached? ----------------------------------------------------
+
+  test ".cached? is false before any call and true after one, without itself running the pipeline" do
+    resume = resumes(:one)
+
+    assert_not Resume::CachedOptimization.cached?(resume: resume, job_description_text: JOB_DESCRIPTION)
+
+    optimize(resume, JOB_DESCRIPTION)
+
+    assert Resume::CachedOptimization.cached?(resume: resume, job_description_text: JOB_DESCRIPTION)
+  end
+
+  test ".cached? is false for a different job description than the one that was cached" do
+    resume = resumes(:one)
+    optimize(resume, JOB_DESCRIPTION)
+
+    assert_not Resume::CachedOptimization.cached?(resume: resume, job_description_text: "#{JOB_DESCRIPTION} Kubernetes required.")
+  end
+
+  # --- Issue #122: credit consumption -----------------------------------------
+
+  test "a cache miss that runs the pipeline consumes exactly one credit" do
+    resume = resumes(:one)
+    resume.user.update!(credits: 2, unlimited_until: nil)
+
+    optimize(resume, JOB_DESCRIPTION)
+
+    assert_equal 1, resume.user.reload.credits
+  end
+
+  test "a cache hit consumes no credit" do
+    resume = resumes(:one)
+    optimize(resume, JOB_DESCRIPTION)
+
+    # .reload, not a bare update! on the association already in memory: the
+    # first optimize call above charged via Credit.consume!'s update_all,
+    # which -- deliberately, see Credit -- writes straight to the row and
+    # never touches this Ruby object's in-memory attributes. Without reload
+    # first, update!(credits: 2) sees no change from its own (stale, still-2)
+    # in-memory value and silently skips writing the column, leaving the row
+    # at its real value (1) while this object still believes it wrote 2.
+    resume.user.reload.update!(credits: 2, unlimited_until: nil)
+
+    optimize(resume, JOB_DESCRIPTION)
+
+    assert_equal 2, resume.user.reload.credits, "a cache hit must not be charged"
+  end
+
+  test "a loser that falls through and runs the pipeline itself still consumes exactly one credit" do
+    resume = resumes(:one)
+    resume.user.update!(credits: 2, unlimited_until: nil)
+    hold_lock(resume, JOB_DESCRIPTION)
+
+    Resume::CachedOptimization.call(
+      resume: resume, job_description_text: JOB_DESCRIPTION, context: :preview, chat: FakeChat.new([]),
+      lock_wait: 0.5.seconds
+    )
+
+    assert_equal 1, resume.user.reload.credits
+  end
+
+  test "a cache miss inside an active unlimited window consumes no credit" do
+    resume = resumes(:one)
+    resume.user.update!(credits: 2, unlimited_until: 1.day.from_now)
+
+    optimize(resume, JOB_DESCRIPTION)
+
+    assert_equal 2, resume.user.reload.credits
+  end
+
   private
 
   def optimize(resume, job_description_text, context: :preview)
