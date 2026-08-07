@@ -60,8 +60,22 @@ class ResumeTest < ActiveSupport::TestCase
   # exist yet -- so this asserts the boundary Resume.purge_stale! must never
   # cross using what's buildable now, standing in for the real balance check
   # once #122 lands.
-  test "purge_stale! does not delete the resume's owner or touch their usage counters" do
+  #
+  # Issue #122: now that users.credits/unlimited_until exist, this test
+  # asserts against the real balance too, not just its Usage::Counter analog
+  # -- exactly what the comment above already anticipated revisiting.
+  #
+  # Non-vacuity: the guarantee is structural (Resume.purge_stale!'s where
+  # clause only ever selects from resumes, and there is no cascade from a
+  # resumes row to its owning users row -- the foreign key points the other
+  # direction), so there is no "unfixed" version of *this* code to run the
+  # test against. Proven instead by temporarily pointing the purge at a scope
+  # that also destroyed the owner (`stale.each { |r| r.user.destroy! }`
+  # spliced into a local copy of purge_stale!) and confirming this test goes
+  # red, then reverting -- recorded in the PR body.
+  test "purge_stale! does not delete the resume's owner, touch their usage counters, or touch their credit balance" do
     user = users(:jordan)
+    user.update!(credits: 5, unlimited_until: 10.days.from_now)
     Usage::Counter.consume!(subject_token: user.id.to_s, action_type: "resume_extraction")
     Resume.create!(user: user, last_accessed_at: Resume::LAST_ACCESSED_PURGE_AFTER.ago - 1.minute)
 
@@ -69,5 +83,8 @@ class ResumeTest < ActiveSupport::TestCase
 
     assert User.exists?(user.id)
     assert_equal 1, Usage::Counter.find_by(subject_token: user.id.to_s, action_type: "resume_extraction").count
+    user.reload
+    assert_equal 5, user.credits
+    assert_in_delta 10.days.from_now, user.unlimited_until, 1.second
   end
 end
