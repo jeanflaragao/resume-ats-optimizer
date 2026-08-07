@@ -1,0 +1,5 @@
+<div id="checkout_status">
+  <p class="text-green-700 font-medium mb-2">Payment received — thanks!</p>
+  <p class="text-gray-600 mb-4">You now have <%= credit_balance_label(user) %>.</p>
+  <%= link_to "Back to your resumes", resumes_path, class: "bg-blue-600 text-white rounded px-4 py-2 inline-block" %>
+</div>
