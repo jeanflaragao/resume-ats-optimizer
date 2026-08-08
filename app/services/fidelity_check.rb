@@ -79,8 +79,19 @@ class FidelityCheck
     (covered / significant_words.size.to_f) >= min_token_coverage
   end
 
+  # \p{L}/\p{N} (Unicode letter/number), not a-z0-9 -- the previous ASCII-only
+  # class split "experiência" into "experi" and "ncia", which then each failed
+  # word_boundary_match? against the very source text they came from (issue
+  # #128). This is Unicode-aware tokenization, not diacritic-stripping: it
+  # changes what counts as a word character while splitting, not what two
+  # characters are considered equal -- "José" and "Jose" still don't match
+  # each other. normalize (from WordBoundaryMatchable, included below) is
+  # applied first so an NFD-encoded candidate_text (a base letter + a
+  # separate combining-mark codepoint, category Mn, not \p{L}) doesn't get
+  # re-fragmented the same way; it also carries that method's ascii_only?
+  # guard against unicode_normalize's Regexp.timeout risk on large input.
   def significant_words
-    @significant_words ||= candidate_text.downcase.gsub(/[^a-z0-9\s]/, " ").split
+    @significant_words ||= normalize(candidate_text).gsub(/[^\p{L}\p{N}\s]/, " ").split
       .reject { |word| word.match?(/\d/) }
       .reject { |word| STOPWORDS.include?(word) }
       .reject { |word| word.length < MIN_SIGNIFICANT_TOKEN_LENGTH }
