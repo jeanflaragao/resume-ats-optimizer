@@ -27,7 +27,15 @@ class UsageQuotaBootTest < ActiveSupport::TestCase
     # for the same reason the LLM vars above are, so every case below still
     # gets past it to exercise Usage::Quota's own rule.
     "GOOGLE_OAUTH_CLIENT_ID" => "test-client-id",
-    "GOOGLE_OAUTH_CLIENT_SECRET" => "test-client-secret"
+    "GOOGLE_OAUTH_CLIENT_SECRET" => "test-client-secret",
+    # Issue #123's Payments::ConfigGuard also loads before this one
+    # ("payments_config_guard" < "usage_quota" alphabetically) -- same reason,
+    # same fix.
+    "STRIPE_SECRET_KEY" => "sk_test_not_a_real_key",
+    "STRIPE_WEBHOOK_SECRET" => "whsec_not_a_real_secret",
+    "STRIPE_PRICE_ID_5_CREDITS" => "price_test_5",
+    "STRIPE_PRICE_ID_15_CREDITS" => "price_test_15",
+    "STRIPE_PRICE_ID_UNLIMITED_30_DAYS" => "price_test_unlimited"
   }.freeze
 
   QUOTA_ENV = Usage::Quota::ACTION_TYPES.to_h { |a| [ Usage::Quota.env_var_for(a), "200" ] }.freeze

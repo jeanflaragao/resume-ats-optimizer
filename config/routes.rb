@@ -26,6 +26,22 @@ Rails.application.routes.draw do
     member { get :ready }
   end
 
+  # Issue #123. success/ready are GET, not resourceful members of :checkout
+  # (there's no single checkout "id" route param to key off — both are keyed
+  # by ?session_id=, Stripe's own Checkout Session id) — see
+  # Payments::CheckoutsController. webhooks lives outside the :payments
+  # resource shape entirely: it's server-to-server, authenticated by Stripe's
+  # signature header rather than a session, and answered by
+  # Payments::WebhooksController, which deliberately does not inherit
+  # ApplicationController.
+  namespace :payments do
+    resource :checkout, only: %i[new create] do
+      get :success, on: :collection
+      get :ready, on: :collection
+    end
+    post "webhooks", to: "webhooks#create"
+  end
+
   # Issue #121: a signed-in user's own resume history, not the upload form —
   # upload is reachable from there as an action, not the landing page itself.
   root "resumes#index"

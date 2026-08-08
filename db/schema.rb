@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_07_153048) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_07_194612) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -51,6 +51,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_07_153048) do
     t.bigint "user_id", null: false
     t.index ["provider", "uid"], name: "index_identities_on_provider_and_uid", unique: true
     t.index ["user_id"], name: "index_identities_on_user_id"
+  end
+
+  create_table "payment_grants", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "credits"
+    t.string "stripe_checkout_session_id", null: false
+    t.string "stripe_event_id", null: false
+    t.string "stripe_price_id", null: false
+    t.integer "unlimited_days"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["stripe_checkout_session_id"], name: "index_payment_grants_on_stripe_checkout_session_id", unique: true
+    t.index ["stripe_event_id"], name: "index_payment_grants_on_stripe_event_id", unique: true
+    t.index ["user_id"], name: "index_payment_grants_on_user_id"
   end
 
   create_table "resume_pdf_requests", force: :cascade do |t|
@@ -106,14 +120,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_07_153048) do
     t.integer "credits", default: 2, null: false
     t.string "email", null: false
     t.string "name"
+    t.string "stripe_customer_id"
     t.datetime "unlimited_until"
     t.datetime "updated_at", null: false
     t.index ["email"], name: "index_users_on_email", unique: true
+    t.index ["stripe_customer_id"], name: "index_users_on_stripe_customer_id", unique: true
   end
 
   add_foreign_key "educations", "resumes"
   add_foreign_key "experiences", "resumes"
   add_foreign_key "identities", "users"
+  add_foreign_key "payment_grants", "users"
   add_foreign_key "resume_pdf_requests", "resumes", on_delete: :cascade
   add_foreign_key "resumes", "users"
   add_foreign_key "sessions", "users"

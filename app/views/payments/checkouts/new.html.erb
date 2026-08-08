@@ -1,0 +1,20 @@
+<div class="max-w-xl mx-auto w-full">
+  <h1 class="text-2xl font-semibold mb-4">Buy credits</h1>
+  <p class="text-gray-600 mb-6">
+    One credit optimizes one resume against one job description. Card payments only for now.
+  </p>
+
+  <div class="flex flex-col gap-4">
+    <% @entries.each do |entry| %>
+      <%= form_with url: payments_checkout_path, method: :post,
+            class: "flex justify-between items-center border rounded p-4" do |form| %>
+        <div>
+          <p class="font-medium"><%= entry.label %></p>
+        </div>
+        <%= form.hidden_field :product, value: entry.key %>
+        <%= form.submit "R$ #{'%.2f' % (entry.amount_cents / 100.0)}",
+              class: "bg-blue-600 text-white rounded px-4 py-2 cursor-pointer" %>
+      <% end %>
+    <% end %>
+  </div>
+</div>

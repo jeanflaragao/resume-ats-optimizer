@@ -85,6 +85,15 @@ class ApplicationController < ActionController::Base
     redirect_back_or_to root_path, flash: { alert: "The AI service is temporarily unavailable. Please try again in a moment." }
   end
 
+  # Issue #123. Only reaches Payments::CheckoutsController — Payments::
+  # WebhooksController doesn't inherit this class. Class only, same as every
+  # other external-API rescue above: a Stripe error's own message can embed
+  # card details or other checkout-session content (ADR-0015).
+  rescue_from Stripe::StripeError do |e|
+    Rails.logger.error("#{controller_name}##{action_name}: #{e.class}")
+    redirect_back_or_to root_path, flash: { alert: "Something went wrong starting checkout. Please try again." }
+  end
+
   private
 
   # Shared owner-scoped lookup for any controller acting on a Resume

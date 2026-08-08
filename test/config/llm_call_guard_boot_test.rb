@@ -43,6 +43,18 @@ class LlmCallGuardBootTest < ActiveSupport::TestCase
   # The quota guard's own boot cases live in test/config/usage_quota_boot_test.rb.
   QUOTA_ENV = Usage::Quota::ACTION_TYPES.to_h { |a| [ Usage::Quota.env_var_for(a), "200" ] }.freeze
 
+  # Issue #123 added a third boot check (config/initializers/
+  # payments_config_guard.rb) that also runs after this one alphabetically
+  # ("llm_call_guard" < "payments_config_guard") -- same reasoning as
+  # QUOTA_ENV above, needed only for the "boots normally" counterweight.
+  STRIPE_ENV = {
+    "STRIPE_SECRET_KEY" => "sk_test_not_a_real_key",
+    "STRIPE_WEBHOOK_SECRET" => "whsec_not_a_real_secret",
+    "STRIPE_PRICE_ID_5_CREDITS" => "price_test_5",
+    "STRIPE_PRICE_ID_15_CREDITS" => "price_test_15",
+    "STRIPE_PRICE_ID_UNLIMITED_30_DAYS" => "price_test_unlimited"
+  }.freeze
+
   def boot_production(**overrides)
     Open3.capture2e(
       BASE_ENV.merge(overrides.transform_keys(&:to_s)),
@@ -90,7 +102,8 @@ class LlmCallGuardBootTest < ActiveSupport::TestCase
       "ENABLE_REAL_LLM_CALLS" => "true",
       "MAX_LLM_CALLS_PER_DAY" => "200",
       "ANTHROPIC_API_KEY" => "sk-ant-not-a-real-key",
-      **QUOTA_ENV
+      **QUOTA_ENV,
+      **STRIPE_ENV
     )
 
     assert_match(/BOOTED-OK/, output)

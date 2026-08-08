@@ -64,4 +64,53 @@ class CreditTest < ActiveSupport::TestCase
 
     assert_equal 1, user.reload.credits
   end
+
+  # --- Issue #123: grant_credits! -------------------------------------------
+
+  test "grant_credits! adds the given amount to the balance" do
+    user = users(:jordan)
+    user.update!(credits: 2, unlimited_until: nil)
+
+    Credit.grant_credits!(user, 5)
+
+    assert_equal 7, user.reload.credits
+  end
+
+  test "grant_credits! is additive regardless of an active unlimited window -- it doesn't check it" do
+    user = users(:jordan)
+    user.update!(credits: 0, unlimited_until: 1.day.from_now)
+
+    Credit.grant_credits!(user, 5)
+
+    assert_equal 5, user.reload.credits
+  end
+
+  # --- Issue #123: grant_unlimited_days! -------------------------------------
+
+  test "grant_unlimited_days! sets unlimited_until to N days from now when there was no prior window" do
+    user = users(:jordan)
+    user.update!(unlimited_until: nil)
+
+    Credit.grant_unlimited_days!(user, 30)
+
+    assert_in_delta 30.days.from_now, user.reload.unlimited_until, 5.seconds
+  end
+
+  test "grant_unlimited_days! sets unlimited_until to N days from now when the prior window already expired" do
+    user = users(:jordan)
+    user.update!(unlimited_until: 5.days.ago)
+
+    Credit.grant_unlimited_days!(user, 30)
+
+    assert_in_delta 30.days.from_now, user.reload.unlimited_until, 5.seconds
+  end
+
+  test "grant_unlimited_days! stacks on top of an active window rather than resetting from now" do
+    user = users(:jordan)
+    user.update!(unlimited_until: 10.days.from_now)
+
+    Credit.grant_unlimited_days!(user, 30)
+
+    assert_in_delta 40.days.from_now, user.reload.unlimited_until, 5.seconds
+  end
 end
