@@ -1,7 +1,8 @@
 # ADR-0018: Embed Liberation Sans with a DejaVu Sans fallback, and refuse to render scripts no font covers
 
 ## Status
-Accepted — refines [ADR-0004](0004-prawn-for-pdf-generation.md)'s "standard fonts" assumption
+Accepted — refines [ADR-0004](0004-prawn-for-pdf-generation.md)'s "standard fonts" assumption;
+the poll-vs-full-polling question decision 4 deferred is now decided by [ADR-0037](0037-actioncable-late-subscriber-poll-fallback.md)
 
 ## Context
 `Resume::Pdf` built its document with a bare `Prawn::Document.new`, so Prawn used its built-in
