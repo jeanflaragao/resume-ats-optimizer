@@ -407,12 +407,10 @@ Otherwise standard Rails 8 conventions.
   the user approved on screen (issue #83, ADR-0021; on a miss it re-runs, and the bullets then
   legitimately differ). It writes the
   PDF bytes to `Rails.cache` (Solid Cache in production, ADR-0012), and broadcasts to
-  `downloads/_ready` or `_failed`. A broadcast can arrive before the page's ActionCable
-  subscription connects, so `DownloadsController#ready` gives a one-shot fallback check on
-  connect — see [issue #72](https://github.com/jeanflaragao/resume-ats-optimizer/issues/72) for
-  revisiting this properly. A **failed** job also writes `{ resume_id:, error: }` under the same
-  cache key, so `#ready` can tell "failed" from "still running" — without it a lost failure
-  broadcast left the page on "Generating…" forever (ADR-0018). `show` is the single, unified,
+  `downloads/_ready` or `_failed` — see
+  [ADR-0037](docs/adr/0037-actioncable-late-subscriber-poll-fallback.md) for the ActionCable
+  late-subscriber race, the one-shot-poll fallback, and the failure-cache mechanism. `show` is the
+  single, unified,
   ownership-gated entry point for every state a `download_id` can be in — in progress (a
   `Resume::PdfRequest` still exists, nothing cached yet — renders `downloads/pending`, the same
   template `#ready`'s Stimulus fallback and the live broadcast both target), ready (`send_data`s

@@ -44,3 +44,4 @@ stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 | 0034 | One month from last access, single-tier, credits never purged | Accepted | [0034-one-month-user-scoped-retention.md](0034-one-month-user-scoped-retention.md) |
 | 0035 | Credit balance and 30-day unlimited window | Accepted | [0035-credit-balance-and-unlimited-window.md](0035-credit-balance-and-unlimited-window.md) |
 | 0036 | Stripe Checkout for credit packs and the unlimited window | Accepted | [0036-stripe-checkout-for-credits-and-unlimited-window.md](0036-stripe-checkout-for-credits-and-unlimited-window.md) |
+| 0037 | Keep the one-shot poll-on-connect fallback for ActionCable's late-subscriber race | Accepted | [0037-actioncable-late-subscriber-poll-fallback.md](0037-actioncable-late-subscriber-poll-fallback.md) |
