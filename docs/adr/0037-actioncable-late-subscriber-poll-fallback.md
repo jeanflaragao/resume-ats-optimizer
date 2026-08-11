@@ -11,10 +11,11 @@ Stream broadcast: `Resume::OptimizedPdfJob` finishes and calls
 same work, manual browser testing turned up a real race: ActionCable does not queue a broadcast
 for a subscription that is still connecting, so a broadcast that fires in that window is simply
 lost, leaving the page stuck on "Generating your optimized resume PDF..." forever even though the
-download succeeded. PR #49's own description records this: *"Also fixed, found the same way: the
-job can finish and broadcast before the status page's ActionCable subscription connects... A small
-Stimulus controller check[s] once on connect and swap[s] in the result if the job already
-finished."*
+download succeeded. The commit that shipped this, `b035aad` ("Build PDF download flow (#18)"),
+records this in its own message: *"Also fixed, found the same way: the job can finish and
+broadcast before the status page's ActionCable subscription connects (broadcasts aren't queued for
+late subscribers), leaving 'Generating...' stuck forever. DownloadsController#ready + a small
+Stimulus controller check once on connect and swap in the result if the job already finished."*
 
 That fix — `DownloadsController#ready` returning the rendered `downloads/_ready` partial once the
 job has finished, or `204` otherwise, with `download_status_controller.js` calling it exactly once
@@ -23,11 +24,12 @@ on connect — was small and reactive, built to close a bug found mid-implementa
 ("Revisit the ActionCable late-subscriber race fix as its own ADR") exists specifically to have
 that discussion and record its outcome, which is this ADR.
 
-A second, related gap surfaced later, found and fixed inside PR #80 alongside the Windows-1252
-font-crash fix it primarily shipped (issue #74) rather than tracked as its own issue: a **failed**
-job broadcast and re-raised without writing anything to the cache, so a lost failure broadcast left
-`#ready` returning `204` — indistinguishable from "still running" — permanently. That gap is closed
-already, outside issue #72's own scope: ADR-0018 decision 4 made the job write
+A second, related gap surfaced later: a **failed** job broadcast and re-raised without writing
+anything to the cache, so a lost failure broadcast left
+`#ready` returning `204` — indistinguishable from "still running" — permanently. Issue #78 found
+and described this gap first, filed as a test-coverage issue rather than a fix issue; PR #80 fixed
+it (alongside the Windows-1252 font-crash fix it primarily shipped, issue #74) about 3h20m later.
+That gap is closed already, outside issue #72's own scope: ADR-0018 decision 4 made the job write
 `{ resume_id:, error: }` under the same cache key on every failure path, and made `#ready` render
 `downloads/_failed` when it finds one. ADR-0018 says so explicitly: *"This is the minimum that makes
 decision 2's message actually reach the user; it deliberately does not change the one-shot-poll

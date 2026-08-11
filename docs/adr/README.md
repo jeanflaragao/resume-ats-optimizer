@@ -6,6 +6,12 @@ Each ADR captures a decision at the point it was made — alternatives considere
 accepted — and is not rewritten as the app evolves. For the current, living description of the
 stack and architecture, see [`CLAUDE.md`](../../CLAUDE.md) at the repo root.
 
+That rule protects a decision's recorded rationale, alternatives, and outcome from being revised
+as understanding or the app changes — supersede with a new ADR instead, per the table below. It
+does not cover a verifiable citation, quote, or timeline error that was already wrong the day the
+ADR was written: those may be corrected in place, with the correction's evidence recorded in the
+fixing commit or PR rather than left standing.
+
 | # | Title | Status | Link |
 |---|-------|--------|------|
 | 0001 | Use a Rails 8 Hotwire monolith instead of a separate API + SPA frontend | Accepted | [0001-rails-8-hotwire-monolith.md](0001-rails-8-hotwire-monolith.md) |
