@@ -48,7 +48,8 @@ actually breaks if it's missing, not just "required."
 | `RAILS_MASTER_KEY` | the contents of your local `config/master.key` (never commit this) | **Blocking.** `config/credentials.yml.enc` can't be decrypted; `Resume::PdfRequest#text`'s `encrypts :text` (ADR-0022) raises, and every download fails. |
 | `ENABLE_REAL_LLM_CALLS` | `true` | **Blocking, no default in production** (ADR-0020). Unset refuses to boot. |
 | `ANTHROPIC_API_KEY` | your real Anthropic key | **Blocking** whenever `ENABLE_REAL_LLM_CALLS=true` (ADR-0020, and now covered by `test/config/llm_call_guard_boot_test.rb`). Refuses to boot rather than silently shipping placeholder text. |
-| `MAX_LLM_CALLS_PER_DAY` | `200` | **Blocking, no default.** See the sizing note below — and the #106 caveat, which this value does not fix. |
+| `MAX_LLM_CALLS_PER_DAY` | `200` | **Blocking, no default.** See the sizing note below. |
+| `MAX_LLM_CALLS_PER_DAY_PER_SUBJECT` | *(not yet chosen — see the sizing note below)* | **Blocking, no default** (issue #106, ADR-0039). Must not exceed `MAX_LLM_CALLS_PER_DAY`, or the app refuses to boot. |
 | `RATE_LIMIT_RESUME_EXTRACTION_PER_DAY` | `5` | **Blocking, no default** (ADR-0023). |
 | `RATE_LIMIT_REQUIREMENT_EXTRACTION_PER_DAY` | `25` | Same. |
 | `RATE_LIMIT_BULLET_REWRITING_PER_DAY` | `15` | Same. |
@@ -152,11 +153,23 @@ local/dev sanity-checking, not derived from real traffic — ADR-0020's own sizi
 invite-only audience would need in a day. Revisit both once real usage data exists, per #48's own
 comment 2 and #45.
 
-**Stated plainly, per this deploy's explicit instruction**: setting `MAX_LLM_CALLS_PER_DAY` here
-does **not** resolve issue #106. That cap has no per-caller dimension — exhausting it (by
-accident or on purpose) denies service to every user for the rest of the day, not just whoever
-exhausted it. Deploying with that gap open is a deliberate, recorded choice (ADR-0028), not an
-oversight.
+**Sizing `MAX_LLM_CALLS_PER_DAY_PER_SUBJECT` (issue #106, ADR-0039)**: `E` is now hard-bounded at
+`Resume::Import::MAX_EXPERIENCES` (20, ADR-0038), so the worst case for one full flow is a known
+`2 + 2E = 42` requests, not an open-ended figure — that number is a hard floor, since anything
+smaller would make one legitimate worst-case flow impossible. How large a multiple of that one
+account should get per day, and how that trades off against `MAX_LLM_CALLS_PER_DAY` overall, is a
+genuine policy decision with no production data yet to derive it from — pick a value deliberately
+at deploy time rather than copying the local default (`10`, which is *smaller* than one worst-case
+flow and only works locally because `ENABLE_REAL_LLM_CALLS` is normally off).
+
+**Historical note, corrected 2026-08-11 (issue #106, ADR-0039)**: this runbook previously stated,
+correctly at the time, that setting `MAX_LLM_CALLS_PER_DAY` here does not resolve issue #106 — the
+cap had no per-caller dimension, so exhausting it (by accident or on purpose) denied service to
+every user for the rest of the day, not just whoever exhausted it. `MAX_LLM_CALLS_PER_DAY_PER_SUBJECT`
+above closes that gap: the shared cap now has a per-account share, so exhausting the whole day's
+budget needs many accounts rather than one. Deploying without it before now was a deliberate,
+recorded choice (ADR-0028), not an oversight — recorded here rather than deleted, per this repo's
+own "never rewrite history" convention for decisions once made.
 
 ## 4. First deploy
 

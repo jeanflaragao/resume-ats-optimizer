@@ -40,7 +40,7 @@ class Resume::Import
 
   UNPARSED_DATE_REASON = "not recognized as a date"
 
-  def self.call(file:, strategy:, user:, chat: LlmCallGuard.chat)
+  def self.call(file:, strategy:, user:, chat: LlmCallGuard.chat(subject: user.id.to_s))
     new(file: file, strategy: strategy, user: user, chat: chat).call
   end
 

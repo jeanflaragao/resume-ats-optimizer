@@ -21,7 +21,7 @@ class JobDescriptionsController < ApplicationController
       status = :unprocessable_entity
     else
       enforce_quota!(:requirement_extraction)
-      requirements = JobDescription::Extractor.call(text: @job_description_text)
+      requirements = JobDescription::Extractor.call(text: @job_description_text, user: Current.user)
       @comparison = Comparison.call(resume: @resume, requirements: requirements)
       @match_score = MatchScore.call(comparison: @comparison)
       status = :ok

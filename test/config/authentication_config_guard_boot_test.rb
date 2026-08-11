@@ -20,6 +20,7 @@ class AuthenticationConfigGuardBootTest < ActiveSupport::TestCase
     "SECRET_KEY_BASE_DUMMY" => nil,
     "ENABLE_REAL_LLM_CALLS" => "true",
     "MAX_LLM_CALLS_PER_DAY" => "200",
+    "MAX_LLM_CALLS_PER_DAY_PER_SUBJECT" => "20",
     "ANTHROPIC_API_KEY" => "sk-ant-not-a-real-key",
     "GOOGLE_OAUTH_CLIENT_ID" => nil,
     "GOOGLE_OAUTH_CLIENT_SECRET" => nil
