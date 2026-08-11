@@ -33,6 +33,17 @@ module AuthenticationTestHelper
     mock_google_auth_for(user)
     visit new_session_path
     click_button "Continue with Google"
+
+    # click_button returns once Selenium's page-load wait is satisfied, which is not
+    # guaranteed to mean the full request -> mocked-provider redirect -> callback ->
+    # session-cookie chain has actually finished (issue #138's fix swapped in a newer
+    # chromedriver/Chrome pairing, which surfaced this as a real, reproducing CI
+    # failure -- every caller went on to visit a protected page immediately after and
+    # landed back on this same sign-in page instead). Waiting for the button itself to
+    # be gone confirms the browser has actually left this page before returning,
+    # without assuming which page came next -- every call site navigates somewhere
+    # different afterward.
+    assert_no_button "Continue with Google"
   ensure
     OmniAuth.config.mock_auth[:google_oauth2] = nil
   end
