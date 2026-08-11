@@ -250,6 +250,13 @@ Otherwise standard Rails 8 conventions.
     picks the matching extractor, persists via `create!` (rolls back on invalid data rather than
     persisting partial results), setting `user:` and `last_accessed_at` in that same call (issue
     #121, ADR-0034) rather than in a second `update!`. Records the extractor in `resumes.source`.
+    Keeps only the first `MAX_EXPERIENCES` (20) experiences and, within each, only the first
+    `MAX_BULLETS_PER_EXPERIENCE` (20) bullets — unmeasured, firm-but-generous bounds (ADR-0038) on
+    the fan-out `Resume::Optimization.rewrite_request_count` later pre-flights against
+    `LlmCallGuard`, since neither count is known before extraction has already run to gate it any
+    earlier. The rest is disclosed, not silently dropped: a `pending_items` entry
+    (`"truncated_experiences"`/`"truncated_bullets"`) on the `Resume`/`Experience`, reusing
+    ADR-0031's existing inform-only rendering rather than a new mechanism.
   - `Extractors::Llm` — sends the file to Claude (`with_schema`). Verifies every field against
     the file's own text before returning it (`FidelityCheck` below): an unverified `company`/
     `title`/`school` drops the whole entry, unverified bullets/skills/dates are dropped/nulled in

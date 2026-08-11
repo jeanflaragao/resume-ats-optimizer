@@ -125,6 +125,40 @@ class PendingItemFillsTest < ActionDispatch::IntegrationTest
     assert_includes resume.reload.pending_items.map { |item| item["field"] }, "experience"
   end
 
+  test "a truncated-experiences pending item cannot be filled in, even by a crafted request" do
+    resume = upload_resume_with_drops
+    resume.update!(pending_items: resume.pending_items + [
+      { "kind" => "truncated_experiences", "field" => "experiences", "reason" => "kept the first 20 of 25 experiences listed; the rest were not processed" }
+    ])
+
+    get resume_path(resume)
+    assert_response :success
+    assert_includes response.body, "kept the first 20 of 25 experiences listed"
+
+    post resume_pending_items_path(resume), params: { pending_item: { scope: "resume", field: "experiences", value: "Anything" } }
+
+    assert_response :not_found
+    assert_includes resume.reload.pending_items.map { |item| item["field"] }, "experiences"
+  end
+
+  test "a truncated-bullets pending item cannot be filled in, even by a crafted request" do
+    resume = upload_resume_with_drops
+    experience = resume.experiences.create!(
+      company: "Acme Corp", title: "Engineer", position: 0,
+      pending_items: [ { "kind" => "truncated_bullets", "field" => "bullets", "reason" => "kept the first 20 of 23 bullet points listed; the rest were not processed" } ]
+    )
+
+    get resume_path(resume)
+    assert_response :success
+    assert_includes response.body, "kept the first 20 of 23 bullet points listed"
+
+    post resume_pending_items_path(resume),
+      params: { pending_item: { scope: "experience", field: "bullets", position: experience.position, value: "Anything" } }
+
+    assert_response :not_found
+    assert_includes experience.reload.pending_items.map { |item| item["field"] }, "bullets"
+  end
+
   test "a field with no matching pending item is rejected" do
     resume = upload_resume_with_drops
 
