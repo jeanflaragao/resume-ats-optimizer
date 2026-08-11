@@ -11,6 +11,21 @@
 class Resume::Import
   class UnsupportedFormatError < StandardError; end
 
+  # Bounds on the LLM fan-out a single upload can produce downstream --
+  # Resume::Optimization.rewrite_request_count is one BulletRewriter request
+  # per experience with bullets, so an unbounded experience count is an
+  # unbounded, single-upload draw against LlmCallGuard's shared daily cap
+  # (issue #130). Applied here, at persist time, rather than as a
+  # ResumesController pre-check (ADR-0017's shape): unlike upload size or job
+  # description length, these counts aren't known until after extraction has
+  # already run.
+  #
+  # Firm but generous, not measured -- the only real corpus available is
+  # ADR-0031's single sample (3 experiences). See ADR-0038 for the reasoning
+  # and the explicit "not measured" caveat.
+  MAX_EXPERIENCES = 20
+  MAX_BULLETS_PER_EXPERIENCE = 20
+
   STRATEGIES = {
     "llm" => { "pdf" => Resume::Extractors::Llm, "json" => Resume::Extractors::Llm },
     "regex" => { "pdf" => Resume::Extractors::PdfRegex, "json" => Resume::Extractors::JsonMapper }
@@ -70,6 +85,9 @@ class Resume::Import
 
   def persist(data)
     Resume.transaction do
+      all_experiences = Array(data["experiences"])
+      experiences_data = all_experiences.first(MAX_EXPERIENCES)
+
       resume = Resume.create!(
         user: user,
         # Starts the issue #59 retention clock immediately rather than leaving
@@ -83,12 +101,13 @@ class Resume::Import
         summary: data["summary"],
         skills: Array(data["skills"]),
         source: source,
-        pending_items: Array(data["pending_items"])
+        pending_items: Array(data["pending_items"]) + truncated_experiences_items(all_experiences)
       )
 
-      Array(data["experiences"]).each_with_index do |experience, index|
+      experiences_data.each_with_index do |experience, index|
         starts_on = parse_date(experience["starts_on"])
         ends_on = parse_date(experience["ends_on"])
+        all_bullets = Array(experience["bullets"])
 
         resume.experiences.create!(
           company: experience["company"],
@@ -96,9 +115,10 @@ class Resume::Import
           location: experience["location"],
           starts_on: starts_on.date,
           ends_on: ends_on.date,
-          bullets: Array(experience["bullets"]),
+          bullets: all_bullets.first(MAX_BULLETS_PER_EXPERIENCE),
           position: index,
-          pending_items: Array(experience["pending_items"]) + unparsed_date_items(starts_on, ends_on)
+          pending_items: Array(experience["pending_items"]) + unparsed_date_items(starts_on, ends_on) +
+            truncated_bullets_items(all_bullets)
         )
       end
 
@@ -140,6 +160,28 @@ class Resume::Import
     DateParseResult.new(date: date, raw_value: nil)
   rescue ArgumentError, TypeError
     DateParseResult.new(date: nil, raw_value: value)
+  end
+
+  def truncated_experiences_items(all_experiences)
+    return [] if all_experiences.size <= MAX_EXPERIENCES
+
+    [ {
+      "kind" => "truncated_experiences",
+      "field" => "experiences",
+      "reason" => "kept the first #{MAX_EXPERIENCES} of #{all_experiences.size} experiences listed; " \
+        "the rest were not processed"
+    } ]
+  end
+
+  def truncated_bullets_items(all_bullets)
+    return [] if all_bullets.size <= MAX_BULLETS_PER_EXPERIENCE
+
+    [ {
+      "kind" => "truncated_bullets",
+      "field" => "bullets",
+      "reason" => "kept the first #{MAX_BULLETS_PER_EXPERIENCE} of #{all_bullets.size} bullet points listed; " \
+        "the rest were not processed"
+    } ]
   end
 
   def unparsed_date_items(starts_on, ends_on)

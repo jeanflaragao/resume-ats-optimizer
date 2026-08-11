@@ -33,6 +33,8 @@ module ResumesHelper
     when "bullet" then "Bullet point"
     when "experience" then "Experience entry"
     when "education" then "Education entry"
+    when "experiences" then "Experience entries"
+    when "bullets" then "Bullet points"
     else row.field.capitalize
     end
   end

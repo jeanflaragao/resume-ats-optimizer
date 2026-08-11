@@ -43,6 +43,63 @@ class Resume::ImportTest < ActiveSupport::TestCase
     assert_equal "Summer 2020", pending["raw_value"]
   end
 
+  test "truncates experiences beyond MAX_EXPERIENCES and records a pending item" do
+    json = {
+      name: "Jane Doe",
+      experiences: (1..Resume::Import::MAX_EXPERIENCES + 5).map do |n|
+        { company: "Company #{n}", title: "Engineer" }
+      end,
+      educations: []
+    }.to_json
+
+    resume = Resume::Import.call(file: fixture_path(json), strategy: "regex", user: users(:jordan))
+
+    assert_equal Resume::Import::MAX_EXPERIENCES, resume.experiences.count
+    assert_equal "Company 1", resume.experiences.first.company
+    assert_equal "Company #{Resume::Import::MAX_EXPERIENCES}", resume.experiences.last.company
+
+    pending = resume.pending_items.find { |item| item["kind"] == "truncated_experiences" }
+    assert_equal "experiences", pending["field"]
+    assert_includes pending["reason"], "kept the first #{Resume::Import::MAX_EXPERIENCES} of #{Resume::Import::MAX_EXPERIENCES + 5}"
+  end
+
+  test "does not record a truncated_experiences pending item when under MAX_EXPERIENCES" do
+    resume = Resume::Import.call(file: fixture_path(valid_json), strategy: "regex", user: users(:jordan))
+
+    assert_nil resume.pending_items.find { |item| item["kind"] == "truncated_experiences" }
+  end
+
+  test "truncates bullets beyond MAX_BULLETS_PER_EXPERIENCE and records a pending item" do
+    json = {
+      name: "Jane Doe",
+      experiences: [
+        {
+          company: "Acme Corp", title: "Engineer",
+          bullets: (1..Resume::Import::MAX_BULLETS_PER_EXPERIENCE + 3).map { |n| "Did thing #{n}" }
+        }
+      ],
+      educations: []
+    }.to_json
+
+    resume = Resume::Import.call(file: fixture_path(json), strategy: "regex", user: users(:jordan))
+
+    experience = resume.experiences.first
+    assert_equal Resume::Import::MAX_BULLETS_PER_EXPERIENCE, experience.bullets.size
+    assert_equal "Did thing 1", experience.bullets.first
+    assert_equal "Did thing #{Resume::Import::MAX_BULLETS_PER_EXPERIENCE}", experience.bullets.last
+
+    pending = experience.pending_items.find { |item| item["kind"] == "truncated_bullets" }
+    assert_equal "bullets", pending["field"]
+    assert_includes pending["reason"],
+      "kept the first #{Resume::Import::MAX_BULLETS_PER_EXPERIENCE} of #{Resume::Import::MAX_BULLETS_PER_EXPERIENCE + 3}"
+  end
+
+  test "does not record a truncated_bullets pending item when under MAX_BULLETS_PER_EXPERIENCE" do
+    resume = Resume::Import.call(file: fixture_path(valid_json), strategy: "regex", user: users(:jordan))
+
+    assert_nil resume.experiences.first.pending_items.find { |item| item["kind"] == "truncated_bullets" }
+  end
+
   test "raises for an unknown strategy" do
     assert_raises(Resume::Import::UnsupportedFormatError) do
       Resume::Import.call(file: fixture_path(valid_json), strategy: "nope", user: users(:jordan))
