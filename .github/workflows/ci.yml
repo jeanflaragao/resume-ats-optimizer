@@ -72,6 +72,16 @@ jobs:
         # this job runs directly on the runner, not the Dockerfile image, so it needs its own copy.
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y build-essential git libpq-dev libyaml-dev pkg-config google-chrome-stable poppler-utils
 
+      - name: Remove the runner's pre-installed chromedriver
+        # google-chrome-stable above installs whatever Chrome is currently "stable" via apt,
+        # independent of the chromedriver version baked into the runner image -- the two can
+        # (and did, issue #138) drift apart, which made Capybara's attach_file report a
+        # perfectly enabled file input as "disabled". Selenium 4's own Selenium Manager
+        # auto-downloads a chromedriver matched to whatever Chrome is actually installed, but
+        # only when it can't find one on PATH first; deleting the stale one here is what
+        # Selenium's own drift warning recommends.
+        run: sudo rm -f /usr/bin/chromedriver
+
       - name: Checkout code
         uses: actions/checkout@v7
 
