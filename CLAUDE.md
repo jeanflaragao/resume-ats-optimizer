@@ -260,7 +260,13 @@ Otherwise standard Rails 8 conventions.
   - `Extractors::Llm` — sends the file to Claude (`with_schema`). Verifies every field against
     the file's own text before returning it (`FidelityCheck` below): an unverified `company`/
     `title`/`school` drops the whole entry, unverified bullets/skills/dates are dropped/nulled in
-    place. Every dropped field is logged without its raw value — ADR-0015.
+    place. Every dropped field is logged without its raw value — ADR-0015. When `chat` is
+    `LlmCallGuard::StubChat` (issue #125, ADR-0040), every drop's `pending_items` reason collapses
+    to one canonical "no real extraction ran (stub mode)" message instead of the field-specific
+    fidelity wording — StubChat's canned values fail the same verbatim/fidelity checks a real
+    fabrication would, so without this a stub-mode upload read identically to one where a real
+    extraction hallucinated. Checked per chat instance, not the global `LlmCallGuard.stub_mode?`,
+    since this class's own tests inject a non-`StubChat` fake to simulate real hallucinated output.
   - `Extractors::PdfRegex`/`JsonMapper` — deterministic fallbacks (best-effort PDF heuristics /
     direct JSON mapping); `PdfRegex` doesn't extract `name`/`email`/`phone`.
 - **`app/services/job_description/extractor.rb`**: `JobDescription::Extractor.call(text:, chat:
