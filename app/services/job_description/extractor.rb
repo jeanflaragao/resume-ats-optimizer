@@ -26,7 +26,7 @@ class JobDescription::Extractor
     "soft_skills" => []
   }.freeze
 
-  def self.call(text:, chat: LlmCallGuard.chat)
+  def self.call(text:, user: nil, chat: LlmCallGuard.chat(subject: user&.id&.to_s))
     # Nothing to extract, so the request would spend real money and a slot
     # against LlmCallGuard's daily cap to be told exactly this.
     return EMPTY_RESULT.dup if text.blank?

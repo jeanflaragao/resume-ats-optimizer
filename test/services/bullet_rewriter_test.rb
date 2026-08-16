@@ -39,6 +39,16 @@ class BulletRewriterTest < ActiveSupport::TestCase
     assert_nil fake_chat.schema
   end
 
+  # Issue #106/ADR-0039: chat: dropped its LlmCallGuard.chat default (every
+  # call site already passed it explicitly) in favor of a plain required
+  # keyword, so a caller can no longer resolve a subject-less chat by
+  # omission.
+  test "raises ArgumentError when chat is omitted" do
+    assert_raises(ArgumentError) do
+      BulletRewriter.call(bullets: [ "Built a thing" ], job_description_text: "Anything.")
+    end
+  end
+
   test "raises if the LLM returns a different number of bullets than it was given" do
     fake_chat = FakeChat.new({ "bullets" => [ "Only one bullet back" ] })
 

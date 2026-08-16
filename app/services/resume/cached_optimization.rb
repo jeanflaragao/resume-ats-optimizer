@@ -126,7 +126,7 @@ class Resume::CachedOptimization
   LOCK_POLL_INTERVAL = 0.25.seconds
 
   class << self
-    def call(resume:, job_description_text:, context:, chat: LlmCallGuard.chat, lock_wait: nil)
+    def call(resume:, job_description_text:, context:, chat: LlmCallGuard.chat(subject: resume.user_id.to_s), lock_wait: nil)
       new(
         resume: resume, job_description_text: job_description_text,
         context: context, chat: chat, lock_wait: lock_wait

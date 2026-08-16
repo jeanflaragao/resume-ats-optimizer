@@ -9,6 +9,7 @@ class LlmCallGuardTest < ActiveSupport::TestCase
   setup do
     @original_enabled = ENV["ENABLE_REAL_LLM_CALLS"]
     @original_max_calls = ENV["MAX_LLM_CALLS_PER_DAY"]
+    @original_max_calls_per_subject = ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"]
     @original_allow_stub = ENV["ALLOW_STUB_LLM"]
     @original_api_key = ENV["ANTHROPIC_API_KEY"]
     @original_dummy_secret = ENV["SECRET_KEY_BASE_DUMMY"]
@@ -28,6 +29,7 @@ class LlmCallGuardTest < ActiveSupport::TestCase
   teardown do
     ENV["ENABLE_REAL_LLM_CALLS"] = @original_enabled
     ENV["MAX_LLM_CALLS_PER_DAY"] = @original_max_calls
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = @original_max_calls_per_subject
     ENV["ALLOW_STUB_LLM"] = @original_allow_stub
     ENV["ANTHROPIC_API_KEY"] = @original_api_key
     ENV["SECRET_KEY_BASE_DUMMY"] = @original_dummy_secret
@@ -37,7 +39,7 @@ class LlmCallGuardTest < ActiveSupport::TestCase
   test "stub mode returns a labeled stub chat without touching the real API or the daily cap" do
     ENV["ENABLE_REAL_LLM_CALLS"] = "false"
 
-    chat = LlmCallGuard.chat
+    chat = LlmCallGuard.chat(subject: "user-1")
 
     assert_instance_of LlmCallGuard::StubChat, chat
     content = chat.with_schema(Resume::ExtractionSchema).ask("prompt", with: "file.pdf").content
@@ -57,7 +59,7 @@ class LlmCallGuardTest < ActiveSupport::TestCase
       2. Mentored three junior engineers
     PROMPT
 
-    content = LlmCallGuard.chat.with_schema(BulletRewriter::Schema).ask(prompt).content
+    content = LlmCallGuard.chat(subject: "user-1").with_schema(BulletRewriter::Schema).ask(prompt).content
 
     assert_equal 2, content["bullets"].size
     content["bullets"].each { |bullet| assert_includes bullet, "LlmCallGuard stub response" }
@@ -69,7 +71,7 @@ class LlmCallGuardTest < ActiveSupport::TestCase
     unknown_schema = Class.new(RubyLLM::Schema)
 
     assert_raises(NotImplementedError) do
-      LlmCallGuard.chat.with_schema(unknown_schema).ask("prompt")
+      LlmCallGuard.chat(subject: "user-1").with_schema(unknown_schema).ask("prompt")
     end
   end
 
@@ -80,9 +82,10 @@ class LlmCallGuardTest < ActiveSupport::TestCase
   test "real mode allows exactly the configured number of requests per day, then raises" do
     ENV["ENABLE_REAL_LLM_CALLS"] = "true"
     ENV["MAX_LLM_CALLS_PER_DAY"] = "2"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "1000"
 
     with_recording_chat do
-      chat = LlmCallGuard.chat
+      chat = LlmCallGuard.chat(subject: "user-1")
       refute_instance_of LlmCallGuard::StubChat, chat
 
       2.times { chat.with_schema(BulletRewriter::Schema).ask("1. Built a thing") }
@@ -93,12 +96,55 @@ class LlmCallGuardTest < ActiveSupport::TestCase
     end
   end
 
+  test "real mode allows exactly the configured number of requests per subject per day, then raises" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "1000"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "2"
+
+    with_recording_chat do
+      chat = LlmCallGuard.chat(subject: "user-1")
+
+      2.times { chat.with_schema(BulletRewriter::Schema).ask("1. Built a thing") }
+
+      assert_raises(LlmCallGuard::SubjectLimitExceededError) do
+        chat.with_schema(BulletRewriter::Schema).ask("1. Built a thing")
+      end
+    end
+  end
+
+  # Issue #106's exact bug, reproduced as a passing test now that a per-subject
+  # dimension exists. Confirmed non-vacuous by temporarily disabling the
+  # per-subject check in record_call! and rerunning this test alone: it failed
+  # with "SubjectLimitExceededError expected but nothing was raised" -- subject
+  # A's calls kept succeeding indefinitely, because no per-subject counter was
+  # ever consulted -- see the PR body for the recorded failure.
+  test "one subject exhausting their per-subject share does not block a different subject" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "1000"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "2"
+
+    with_recording_chat do
+      subject_a = LlmCallGuard.chat(subject: "user-a")
+      2.times { subject_a.with_schema(BulletRewriter::Schema).ask("1. Built a thing") }
+
+      assert_raises(LlmCallGuard::SubjectLimitExceededError) do
+        subject_a.with_schema(BulletRewriter::Schema).ask("1. Built a thing")
+      end
+
+      subject_b = LlmCallGuard.chat(subject: "user-b")
+      assert_nothing_raised do
+        subject_b.with_schema(BulletRewriter::Schema).ask("1. Built a thing")
+      end
+    end
+  end
+
   test "resolving a chat does not consume cap headroom on its own" do
     ENV["ENABLE_REAL_LLM_CALLS"] = "true"
     ENV["MAX_LLM_CALLS_PER_DAY"] = "2"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "2"
 
     with_recording_chat do
-      5.times { LlmCallGuard.chat }
+      5.times { LlmCallGuard.chat(subject: "user-1") }
 
       assert_nil Rails.cache.read(counter_key)
     end
@@ -136,7 +182,7 @@ class LlmCallGuardTest < ActiveSupport::TestCase
     ENV["MAX_LLM_CALLS_PER_DAY"] = "1000"
 
     with_recording_chat do
-      chat = LlmCallGuard.chat
+      chat = LlmCallGuard.chat(subject: "user-1")
       scoped = chat.with_schema(BulletRewriter::Schema)
 
       refute_same chat, scoped
@@ -164,7 +210,7 @@ class LlmCallGuardTest < ActiveSupport::TestCase
     ENV["ENABLE_REAL_LLM_CALLS"] = "true"
     ENV["MAX_LLM_CALLS_PER_DAY"] = "2"
 
-    resume = Resume.new(name: "Alex Doe")
+    resume = Resume.new(name: "Alex Doe", user: users(:jordan))
     resume.experiences.build(company: "A", title: "Engineer", bullets: [ "Built a thing" ], position: 0)
     resume.experiences.build(company: "B", title: "Engineer", bullets: [], position: 1)
     resume.experiences.build(company: "C", title: "Engineer", bullets: [ "Led a team" ], position: 2)
@@ -184,14 +230,21 @@ class LlmCallGuardTest < ActiveSupport::TestCase
   test "the per-request backstop still holds when the pre-flight check is bypassed" do
     ENV["ENABLE_REAL_LLM_CALLS"] = "true"
     ENV["MAX_LLM_CALLS_PER_DAY"] = "2"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "1000"
 
     with_recording_chat do
       2.times do
-        BulletRewriter.call(bullets: [ "Built a thing" ], job_description_text: "Anything.")
+        BulletRewriter.call(
+          bullets: [ "Built a thing" ], job_description_text: "Anything.",
+          chat: LlmCallGuard.chat(subject: "user-1")
+        )
       end
 
       assert_raises(LlmCallGuard::DailyLimitExceededError) do
-        BulletRewriter.call(bullets: [ "Built a thing" ], job_description_text: "Anything.")
+        BulletRewriter.call(
+          bullets: [ "Built a thing" ], job_description_text: "Anything.",
+          chat: LlmCallGuard.chat(subject: "user-1")
+        )
       end
     end
   end
@@ -211,7 +264,7 @@ class LlmCallGuardTest < ActiveSupport::TestCase
 
     with_recording_chat do |log|
       assert_raises(LlmCallGuard::BudgetUnavailableError) do
-        LlmCallGuard.chat.with_schema(BulletRewriter::Schema).ask("1. Built a thing")
+        LlmCallGuard.chat(subject: "user-1").with_schema(BulletRewriter::Schema).ask("1. Built a thing")
       end
 
       assert_empty log, "must not issue a request whose cost it cannot account for"
@@ -225,11 +278,74 @@ class LlmCallGuardTest < ActiveSupport::TestCase
 
     with_recording_chat do
       error = assert_raises(LlmCallGuard::BudgetUnavailableError) do
-        LlmCallGuard.chat.with_schema(BulletRewriter::Schema).ask("1. Built a thing")
+        LlmCallGuard.chat(subject: "user-1").with_schema(BulletRewriter::Schema).ask("1. Built a thing")
       end
 
       refute_kind_of LlmCallGuard::DailyLimitExceededError, error
     end
+  end
+
+  # Issue #106/ADR-0039: the per-subject write fails closed the same way the
+  # global counter's own increment does above -- an unreadable/unwritable
+  # per-subject counter must not let an uncounted request through.
+  #
+  # No mocking gem available (this project's Minitest ships without
+  # Minitest::Mock -- see the RubyLLM gotchas note), so the failure is forced
+  # the same way test/support/recording_llm.rb already swaps RubyLLM.chat:
+  # redefine the singleton method for the duration of the block, restore it
+  # in ensure.
+  test "fails closed when the per-subject call counter cannot be verified" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "1000"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "1000"
+
+    with_broken_usage_counter(:consume!) do
+      with_recording_chat do |log|
+        assert_raises(LlmCallGuard::BudgetUnavailableError) do
+          LlmCallGuard.chat(subject: "user-1").with_schema(BulletRewriter::Schema).ask("1. Built a thing")
+        end
+
+        assert_empty log, "must not issue a request whose per-subject cost it cannot account for"
+      end
+    end
+  end
+
+  # The pre-flight read is advisory, not fatal -- the opposite of the backstop
+  # write above -- matching the global pre-flight's own nil.to_i behavior on
+  # an unreadable Rails.cache counter. A subject with no readable headroom
+  # must not be blocked from a flow it may well have room for.
+  test "the pre-flight check proceeds optimistically when the per-subject counter cannot be read" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "1000"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "1000"
+
+    with_broken_usage_counter(:count_for) do
+      sizes = with_recording_chat do |log|
+        Resume::Optimization.call(resume: resume_with_experiences(3), job_description_text: "Anything.")
+        log
+      end
+
+      assert_equal 3, sizes.size, "pre-flight must not block a flow just because it could not read per-subject headroom"
+    end
+  end
+
+  # Issue #106/ADR-0039: the pre-flight check refuses a flow that cannot fit
+  # inside the subject's own share, before spending anything -- mirrors "the
+  # pre-flight check refuses a flow that cannot fit" above, for the
+  # per-subject dimension instead of the global one.
+  test "the pre-flight check refuses a flow that cannot fit inside the subject's own share" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "1000"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "2"
+
+    sizes = with_recording_chat do |log|
+      assert_raises(LlmCallGuard::SubjectLimitExceededError) do
+        Resume::Optimization.call(resume: resume_with_experiences(3), job_description_text: "Anything.")
+      end
+      log
+    end
+
+    assert_empty sizes, "pre-flight must refuse before issuing any provider request"
   end
 
   # --- Boot-time configuration checks (issue #77) ------------------------
@@ -239,9 +355,10 @@ class LlmCallGuardTest < ActiveSupport::TestCase
   # test/config/llm_call_guard_boot_test.rb, because nothing here can see a
   # deleted initializer.
 
-  test "production boots when real calls, the cap, and the API key are all set explicitly" do
+  test "production boots when real calls, both caps, and the API key are all set explicitly" do
     ENV["ENABLE_REAL_LLM_CALLS"] = "true"
     ENV["MAX_LLM_CALLS_PER_DAY"] = "200"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "20"
     ENV["ANTHROPIC_API_KEY"] = "sk-ant-test"
 
     assert_nothing_raised { LlmCallGuard.validate_configuration!(env: production) }
@@ -286,6 +403,7 @@ class LlmCallGuardTest < ActiveSupport::TestCase
     ENV["ENABLE_REAL_LLM_CALLS"] = "false"
     ENV["ALLOW_STUB_LLM"] = "true"
     ENV["MAX_LLM_CALLS_PER_DAY"] = "200"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "20"
     ENV.delete("ANTHROPIC_API_KEY")
 
     assert_nothing_raised { LlmCallGuard.validate_configuration!(env: production) }
@@ -306,6 +424,7 @@ class LlmCallGuardTest < ActiveSupport::TestCase
   test "production refuses to boot on a cap that is not a positive integer" do
     ENV["ENABLE_REAL_LLM_CALLS"] = "true"
     ENV["ANTHROPIC_API_KEY"] = "sk-ant-test"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "20"
 
     [ "", "ten", "0", "-1", "10.5" ].each do |value|
       ENV["MAX_LLM_CALLS_PER_DAY"] = value
@@ -315,6 +434,57 @@ class LlmCallGuardTest < ActiveSupport::TestCase
       end
       assert_includes error.message, "positive integer"
     end
+  end
+
+  test "production refuses to boot when MAX_LLM_CALLS_PER_DAY_PER_SUBJECT is unset" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "200"
+    ENV.delete("MAX_LLM_CALLS_PER_DAY_PER_SUBJECT")
+    ENV["ANTHROPIC_API_KEY"] = "sk-ant-test"
+
+    error = assert_raises(LlmCallGuard::ConfigurationError) do
+      LlmCallGuard.validate_configuration!(env: production)
+    end
+    assert_includes error.message, "MAX_LLM_CALLS_PER_DAY_PER_SUBJECT is not set"
+  end
+
+  test "production refuses to boot on a per-subject cap that is not a positive integer" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "200"
+    ENV["ANTHROPIC_API_KEY"] = "sk-ant-test"
+
+    [ "", "ten", "0", "-1", "10.5" ].each do |value|
+      ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = value
+
+      error = assert_raises(LlmCallGuard::ConfigurationError, "expected #{value.inspect} to be refused") do
+        LlmCallGuard.validate_configuration!(env: production)
+      end
+      assert_includes error.message, "positive integer"
+    end
+  end
+
+  # A "share" larger than the whole it's a share of isn't a bound at all --
+  # one subject could exhaust the entire global cap alone, exactly the
+  # failure #106 exists to close.
+  test "production refuses to boot when the per-subject cap exceeds the global cap" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "10"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "11"
+    ENV["ANTHROPIC_API_KEY"] = "sk-ant-test"
+
+    error = assert_raises(LlmCallGuard::ConfigurationError) do
+      LlmCallGuard.validate_configuration!(env: production)
+    end
+    assert_includes error.message, "must not exceed"
+  end
+
+  test "production boots when the per-subject cap equals the global cap" do
+    ENV["ENABLE_REAL_LLM_CALLS"] = "true"
+    ENV["MAX_LLM_CALLS_PER_DAY"] = "10"
+    ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"] = "10"
+    ENV["ANTHROPIC_API_KEY"] = "sk-ant-test"
+
+    assert_nothing_raised { LlmCallGuard.validate_configuration!(env: production) }
   end
 
   # config/initializers/ruby_llm.rb reads this with a bare ENV[], so an unset
@@ -391,8 +561,8 @@ class LlmCallGuardTest < ActiveSupport::TestCase
     "llm_call_guard/calls_on/#{Date.current}"
   end
 
-  def resume_with_experiences(count)
-    resume = Resume.new(name: "Alex Doe")
+  def resume_with_experiences(count, user: users(:jordan))
+    resume = Resume.new(name: "Alex Doe", user: user)
     count.times do |index|
       resume.experiences.build(
         company: "Company #{index}", title: "Engineer",
@@ -400,5 +570,17 @@ class LlmCallGuardTest < ActiveSupport::TestCase
       )
     end
     resume
+  end
+
+  # Redefines Usage::Counter's singleton method for the duration of the block,
+  # restoring the original in ensure -- same idiom as
+  # test/support/recording_llm.rb's with_recording_chat, used here because
+  # this project's Minitest ships without Minitest::Mock.
+  def with_broken_usage_counter(method_name)
+    original = Usage::Counter.method(method_name)
+    Usage::Counter.define_singleton_method(method_name) { |**| raise ActiveRecord::ConnectionNotEstablished }
+    yield
+  ensure
+    Usage::Counter.define_singleton_method(method_name, original)
   end
 end

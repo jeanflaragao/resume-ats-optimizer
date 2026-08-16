@@ -23,7 +23,7 @@ class Resume::Optimization
   # class comment above already claims of it.
   Education = Data.define(:school, :degree, :field_of_study, :starts_on, :ends_on)
 
-  def self.call(resume:, job_description_text:, chat: LlmCallGuard.chat)
+  def self.call(resume:, job_description_text:, chat: LlmCallGuard.chat(subject: resume.user_id.to_s))
     new(resume: resume, job_description_text: job_description_text, chat: chat).call
   end
 
@@ -66,7 +66,7 @@ class Resume::Optimization
   # resume that cannot fit in today's remaining budget still pays for every
   # rewrite up to the one that trips the cap, and delivers nothing.
   def optimized_experiences
-    LlmCallGuard.ensure_headroom!(rewrite_request_count)
+    LlmCallGuard.ensure_headroom!(rewrite_request_count, subject: resume.user_id.to_s)
 
     resume.experiences.map do |experience|
       rewrites = BulletRewriter.call(

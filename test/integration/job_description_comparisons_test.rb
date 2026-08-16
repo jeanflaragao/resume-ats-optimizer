@@ -69,6 +69,27 @@ class JobDescriptionComparisonsTest < ActionDispatch::IntegrationTest
     JobDescription::Extractor.define_singleton_method(:call, original_call)
   end
 
+  # Issue #106/ADR-0039: JobDescription::Extractor.call's default chat: derives
+  # its per-subject LlmCallGuard dimension from user:, so this is what proves
+  # the controller actually wires the signed-in user through rather than
+  # leaving the parameter at its nil default (which would raise ArgumentError
+  # the moment a real call tried to resolve a subject-less chat).
+  test "the signed-in user is passed through to JobDescription::Extractor" do
+    resume = upload_resume
+    received = nil
+    original_call = JobDescription::Extractor.method(:call)
+    JobDescription::Extractor.define_singleton_method(:call) do |**kwargs|
+      received = kwargs
+      JobDescription::Extractor::EMPTY_RESULT.dup
+    end
+
+    post resume_job_description_path(resume), params: { job_description_text: "We need a Ruby engineer." }
+
+    assert_equal users(:jordan), received[:user]
+  ensure
+    JobDescription::Extractor.define_singleton_method(:call, original_call)
+  end
+
   test "a job description can only be submitted against a resume owned by the current session" do
     resume = upload_resume
 

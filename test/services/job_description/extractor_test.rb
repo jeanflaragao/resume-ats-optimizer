@@ -125,4 +125,20 @@ class JobDescription::ExtractorTest < ActiveSupport::TestCase
 
     refute schema[:properties][:years_experience_min].key?(:minimum)
   end
+
+  # Issue #106/ADR-0039: the default chat: now derives its subject from user:,
+  # not evaluated by any test above (they all pass chat: explicitly, so the
+  # default expression never runs). Real coverage that the default itself
+  # resolves without error when a real user is passed -- stub mode, so no
+  # real provider request is made.
+  test "the default chat resolves without error when a user is passed and no chat is given" do
+    original_enabled = ENV["ENABLE_REAL_LLM_CALLS"]
+    ENV["ENABLE_REAL_LLM_CALLS"] = "false"
+
+    result = JobDescription::Extractor.call(text: "We need a Senior Ruby Engineer...", user: users(:jordan))
+
+    assert_equal JobDescription::Extractor::EMPTY_RESULT.keys.sort, result.keys.sort
+  ensure
+    ENV["ENABLE_REAL_LLM_CALLS"] = original_enabled
+  end
 end

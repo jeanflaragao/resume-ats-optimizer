@@ -5,6 +5,13 @@
 # mechanism from LlmCallGuard's global daily cap and deliberately does not
 # replace it -- see ADR-0023 and issue #45.
 #
+# Two independent callers as of ADR-0039, not one: Usage::Quota's four
+# per-action action types, and LlmCallGuard's own SUBJECT_ACTION_TYPE
+# ("llm_provider_call"), which LlmCallGuard writes and reads directly --
+# bypassing Usage::Quota entirely, so a row here does not imply it belongs to
+# Usage::Quota's action-type set. Sharing this storage primitive does not
+# merge the two mechanisms: they keep separate error classes and messages.
+#
 # The subject is the signed-in user's id, as a string (issue #121, ADR-0033) --
 # see subject_token below. subject_token stays a plain string column rather
 # than gaining a dedicated users FK: nothing here joins against it or needs
@@ -75,6 +82,15 @@ class Usage::Counter < ApplicationRecord
       on_duplicate: Arel.sql("count = usage_counters.count + 1, updated_at = EXCLUDED.updated_at"),
       returning: %w[count]
     ).first["count"]
+  end
+
+  # Read-only counterpart to consume! -- used by LlmCallGuard's pre-flight,
+  # which (like the global cap's own Rails.cache.read) must not itself
+  # increment. pick(:count) rather than find_by + #count to stay a single
+  # query with no risk of loading/instantiating a row just to read one column.
+  def self.count_for(subject_token:, action_type:, period: DAY, period_start: Date.current)
+    where(subject_token: subject_token, action_type: action_type.to_s, period: period, period_start: period_start)
+      .pick(:count) || 0
   end
 
   # Called from config/recurring.yml. delete_all rather than Resume::PdfRequest.

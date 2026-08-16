@@ -78,4 +78,38 @@ class Usage::CounterTest < ActiveSupport::TestCase
   test "RETAIN_FOR exceeds the period the counters enforce over" do
     assert_operator Usage::Counter::RETAIN_FOR, :>, 1.day
   end
+
+  # --- count_for (issue #106/ADR-0039, LlmCallGuard's per-subject pre-flight) ---
+
+  test "count_for returns 0 for a subject/action pair with no rows" do
+    assert_equal 0, Usage::Counter.count_for(subject_token: "token-a", action_type: "llm_provider_call")
+  end
+
+  test "count_for returns the running count after consume!" do
+    3.times { Usage::Counter.consume!(subject_token: "token-a", action_type: "llm_provider_call") }
+
+    assert_equal 3, Usage::Counter.count_for(subject_token: "token-a", action_type: "llm_provider_call")
+  end
+
+  test "count_for does not read across subjects, actions, or periods" do
+    Usage::Counter.consume!(subject_token: "token-a", action_type: "llm_provider_call")
+    Usage::Counter.consume!(subject_token: "token-b", action_type: "llm_provider_call")
+    Usage::Counter.consume!(subject_token: "token-a", action_type: :pdf_generation)
+    Usage::Counter.consume!(subject_token: "token-a", action_type: "llm_provider_call", period_start: Date.current - 1)
+
+    assert_equal 1, Usage::Counter.count_for(subject_token: "token-a", action_type: "llm_provider_call")
+  end
+
+  # LlmCallGuard's SUBJECT_ACTION_TYPE and Usage::Quota's four action types
+  # share one table (Usage::Counter) but not one row: the unique index is on
+  # all four columns including action_type, so they can never collide for the
+  # same subject on the same day.
+  test "LlmCallGuard's action type does not collide with a Usage::Quota action type for the same subject" do
+    Usage::Counter.consume!(subject_token: "token-a", action_type: "llm_provider_call")
+    Usage::Counter.consume!(subject_token: "token-a", action_type: :pdf_generation)
+
+    assert_equal 2, Usage::Counter.count
+    assert_equal 1, Usage::Counter.count_for(subject_token: "token-a", action_type: "llm_provider_call")
+    assert_equal 1, Usage::Counter.count_for(subject_token: "token-a", action_type: :pdf_generation)
+  end
 end

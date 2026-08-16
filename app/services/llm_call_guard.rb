@@ -33,6 +33,12 @@ class LlmCallGuard
   # send users away for a day over a transient database blip.
   class BudgetUnavailableError < StandardError; end
 
+  # Issue #106/ADR-0039. Deliberately NOT a subclass of DailyLimitExceededError,
+  # for the same reason BudgetUnavailableError isn't: "the service is out of
+  # budget for everyone" and "you personally are being throttled" call for
+  # different flash wording, even though both originate from this class.
+  class SubjectLimitExceededError < StandardError; end
+
   # Raised at boot, not at first call. See .validate_configuration! below.
   class ConfigurationError < StandardError; end
 
@@ -76,6 +82,8 @@ class LlmCallGuard
     validate_mode!
     validate_api_key!
     validate_cap!
+    validate_cap_per_subject!
+    validate_cap_relationship!
   end
 
   # "Are we stubbing?" — the mode itself, independent of who wants to know.
@@ -149,7 +157,42 @@ class LlmCallGuard
       "MAX_LLM_CALLS_PER_DAY must be a positive integer, got #{raw.inspect}."
   end
 
-  private_class_method :validate_mode!, :validate_api_key!, :validate_cap!
+  # Issue #106/ADR-0039: bounds what one subject can draw from the shared
+  # daily budget, so exhausting the global cap needs many subjects rather than
+  # one. Same shape and reasoning as validate_cap! -- no production default,
+  # since a number picked here would ship a policy decision (how large a
+  # "fair share" is) that belongs in the deploy config, not in code.
+  def self.validate_cap_per_subject!
+    unless ENV.key?("MAX_LLM_CALLS_PER_DAY_PER_SUBJECT")
+      raise ConfigurationError,
+        "MAX_LLM_CALLS_PER_DAY_PER_SUBJECT is not set. It has no default in production — the value " \
+        "belongs in the deploy config, sized against 2 + E provider requests per full user flow " \
+        "(E = experiences with bullets, hard-bounded at Resume::Import::MAX_EXPERIENCES), or twice " \
+        "that on a download cache miss."
+    end
+
+    raw = ENV["MAX_LLM_CALLS_PER_DAY_PER_SUBJECT"]
+    cap = Integer(raw, exception: false)
+    return if cap&.positive?
+
+    raise ConfigurationError,
+      "MAX_LLM_CALLS_PER_DAY_PER_SUBJECT must be a positive integer, got #{raw.inspect}."
+  end
+
+  # A "share" larger than the whole it's a share of isn't a bound at all --
+  # one subject could then exhaust the entire global cap alone, which is
+  # exactly the failure #106 exists to close. Runs after both individual caps
+  # have already validated as positive integers, so the comparison is safe.
+  def self.validate_cap_relationship!
+    return if max_calls_per_day_per_subject <= max_calls_per_day
+
+    raise ConfigurationError,
+      "MAX_LLM_CALLS_PER_DAY_PER_SUBJECT (#{max_calls_per_day_per_subject}) must not exceed " \
+      "MAX_LLM_CALLS_PER_DAY (#{max_calls_per_day})."
+  end
+
+  private_class_method :validate_mode!, :validate_api_key!, :validate_cap!,
+    :validate_cap_per_subject!, :validate_cap_relationship!
 
   # Returns a stateless handle, not a live RubyLLM::Chat. Resolving a chat is
   # free; issuing a request is what costs money and what counts. Before #75
@@ -157,10 +200,14 @@ class LlmCallGuard
   # resolved once and asked N times (Resume::Optimization) was billed N times
   # and counted once, while the shared chat's message history grew with every
   # rewrite.
-  def self.chat
+  # subject: is required (issue #106/ADR-0039) so a call site can never
+  # silently resolve a subject-less chat -- the caller must know who's asking.
+  def self.chat(subject:)
     return StubChat.new unless enabled?
 
-    MeteredChat.new
+    raise ArgumentError, "subject is required" if subject.blank?
+
+    MeteredChat.new(subject: subject)
   end
 
   def self.enabled?
@@ -171,23 +218,45 @@ class LlmCallGuard
     Integer(ENV.fetch("MAX_LLM_CALLS_PER_DAY", "10"))
   end
 
+  # Local/test default matches MAX_LLM_CALLS_PER_DAY's own -- same
+  # dev-convenience posture, not a production recommendation. In production
+  # neither has a default; both are validated at boot (.validate_configuration!).
+  def self.max_calls_per_day_per_subject
+    Integer(ENV.fetch("MAX_LLM_CALLS_PER_DAY_PER_SUBJECT", "10"))
+  end
+
   def self.counter_key
     "llm_call_guard/calls_on/#{Date.current}"
   end
+
+  # Issue #106/ADR-0039. Not added to Usage::Quota::ACTION_TYPES -- LlmCallGuard
+  # writes/reads Usage::Counter directly, bypassing Usage::Quota entirely, so
+  # the two mechanisms stay structurally separate while sharing only the
+  # proven atomic-counter primitive.
+  SUBJECT_ACTION_TYPE = "llm_provider_call"
 
   # Pre-flight: refuses a flow that cannot fit inside today's remaining budget,
   # before its first billable request. Read-only by design — reserving would
   # need a refund path on every failure mode, and sizing a per-flow reservation
   # is #22's job, not this stopgap's.
-  def self.ensure_headroom!(requests)
+  def self.ensure_headroom!(requests, subject:)
     return unless enabled?
     return if requests.to_i.zero?
 
-    used = Rails.cache.read(counter_key).to_i
-    return if used + requests <= max_calls_per_day
+    raise ArgumentError, "subject is required" if subject.blank?
 
-    raise DailyLimitExceededError,
-      "Daily LLM call cap (#{max_calls_per_day}) would be exceeded: #{used} used, #{requests} more needed"
+    used = Rails.cache.read(counter_key).to_i
+    if used + requests > max_calls_per_day
+      raise DailyLimitExceededError,
+        "Daily LLM call cap (#{max_calls_per_day}) would be exceeded: #{used} used, #{requests} more needed"
+    end
+
+    used_by_subject = subject_headroom_used(subject)
+    return if used_by_subject + requests <= max_calls_per_day_per_subject
+
+    raise SubjectLimitExceededError,
+      "Per-subject LLM call cap (#{max_calls_per_day_per_subject}) would be exceeded: " \
+      "#{used_by_subject} used, #{requests} more needed"
   end
 
   # Counts a request as it is issued, not once it succeeds. This overcounts
@@ -214,13 +283,44 @@ class LlmCallGuard
   # count-before-the-request ordering gives to the same question, and a guard
   # that answered it one way for failed requests and the other way for a failed
   # counter would not be a guard.
-  def self.record_call!
+  def self.record_call!(subject:)
+    raise ArgumentError, "subject is required" if subject.blank?
+
     count = Rails.cache.increment(counter_key, 1, expires_in: 1.day)
     raise BudgetUnavailableError, "LLM call counter is unavailable; refusing to issue an uncounted call" if count.nil?
-    return if count <= max_calls_per_day
+    raise DailyLimitExceededError, "Daily LLM call cap (#{max_calls_per_day}) exceeded" if count > max_calls_per_day
 
-    raise DailyLimitExceededError, "Daily LLM call cap (#{max_calls_per_day}) exceeded"
+    subject_count = subject_call_count!(subject)
+    return if subject_count <= max_calls_per_day_per_subject
+
+    raise SubjectLimitExceededError, "Per-subject LLM call cap (#{max_calls_per_day_per_subject}) exceeded"
   end
+
+  # Pre-flight read (issue #106/ADR-0039): must not itself increment, and must
+  # not fail the flow it's checking on a transient database blip -- an
+  # unreadable per-subject count is treated as 0, matching the global
+  # pre-flight's own nil.to_i behavior above. The backstop below fails closed
+  # instead; a read failing open here is safe precisely because that backstop
+  # exists to catch what the pre-flight missed.
+  def self.subject_headroom_used(subject)
+    Usage::Counter.count_for(subject_token: subject, action_type: SUBJECT_ACTION_TYPE)
+  rescue ActiveRecord::ActiveRecordError => e
+    Rails.logger.warn("LlmCallGuard: could not read per-subject headroom (#{e.class}); proceeding optimistically")
+    0
+  end
+  private_class_method :subject_headroom_used
+
+  # Backstop write: fails closed, like the global counter's own increment
+  # above and for the same reason (ADR-0019) -- an uncounted real request is
+  # the one outcome this guard exists to prevent, and that applies to the
+  # per-subject count exactly as much as the global one.
+  def self.subject_call_count!(subject)
+    Usage::Counter.consume!(subject_token: subject, action_type: SUBJECT_ACTION_TYPE)
+  rescue ActiveRecord::ActiveRecordError => e
+    Rails.logger.error("LlmCallGuard: per-subject call counter unavailable (#{e.class})")
+    raise BudgetUnavailableError, "Per-subject LLM call counter is unavailable; refusing to issue an uncounted call"
+  end
+  private_class_method :subject_call_count!
 
   # Duck-types the same with_schema(schema).ask(prompt, with: nil).content
   # interface as StubChat below, counting each request and issuing it against a
@@ -237,18 +337,19 @@ class LlmCallGuard
   # shared across experiences (Resume::Optimization) or across Solid Queue
   # threads cannot leak one call's schema into the next.
   class MeteredChat
-    attr_reader :schema
+    attr_reader :schema, :subject
 
-    def initialize(schema: nil)
+    def initialize(subject:, schema: nil)
+      @subject = subject
       @schema = schema
     end
 
     def with_schema(schema)
-      self.class.new(schema: schema)
+      self.class.new(subject: subject, schema: schema)
     end
 
     def ask(prompt = nil, **options)
-      LlmCallGuard.record_call!
+      LlmCallGuard.record_call!(subject: subject)
 
       chat = RubyLLM.chat
       chat = chat.with_schema(schema) if schema
