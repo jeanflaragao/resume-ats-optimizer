@@ -44,6 +44,18 @@ class ApplicationController < ActionController::Base
     redirect_back_or_to root_path, flash: { alert: "We can't process resumes right now. Please try again in a moment." }
   end
 
+  # Issue #106/ADR-0039: the global cap's per-subject share, distinct from
+  # both neighbors above. Still "we" (it's still the shared daily cap, just
+  # sliced per account, not a separate per-action quota like Usage::Quota
+  # below) but scoped to "your account" so the message doesn't read as a
+  # service-wide outage when it's really one account's own share. Logs the
+  # exception class only — no subject, same reasoning as the
+  # Usage::Quota::ExceededError handler below (ADR-0015).
+  rescue_from LlmCallGuard::SubjectLimitExceededError do |e|
+    Rails.logger.warn("#{controller_name}##{action_name}: #{e.class}")
+    redirect_back_or_to root_path, flash: { alert: "We've hit today's processing limit for your account. Please try again tomorrow." }
+  end
+
   # Issue #22's per-subject quota, distinct from both handlers above. The two
   # LlmCallGuard errors are about the service as a whole — "we"; this one is
   # about this session specifically — "you" — and the wording has to make that

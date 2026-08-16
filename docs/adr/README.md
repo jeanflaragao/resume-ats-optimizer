@@ -52,3 +52,4 @@ fixing commit or PR rather than left standing.
 | 0036 | Stripe Checkout for credit packs and the unlimited window | Accepted | [0036-stripe-checkout-for-credits-and-unlimited-window.md](0036-stripe-checkout-for-credits-and-unlimited-window.md) |
 | 0037 | Keep the one-shot poll-on-connect fallback for ActionCable's late-subscriber race | Accepted | [0037-actioncable-late-subscriber-poll-fallback.md](0037-actioncable-late-subscriber-poll-fallback.md) |
 | 0038 | Bound experiences and bullets per upload, with disclosure instead of rejection | Accepted | [0038-bound-experiences-and-bullets-per-upload.md](0038-bound-experiences-and-bullets-per-upload.md) |
+| 0039 | Give LlmCallGuard's daily cap a per-subject share, backed by Usage::Counter | Accepted | [0039-per-subject-share-of-the-daily-llm-cap.md](0039-per-subject-share-of-the-daily-llm-cap.md) |

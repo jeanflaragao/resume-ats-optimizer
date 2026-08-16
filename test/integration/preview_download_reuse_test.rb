@@ -24,6 +24,26 @@ class PreviewDownloadReuseTest < ActionDispatch::IntegrationTest
     "Rebuilt the payment reconciliation pipeline for the finance organisation"
   ].freeze
 
+  # Structural guard, not a behavior test (same spirit as
+  # test/config/llm_call_guard_enforcement_test.rb's structural check). This
+  # file's heaviest scenario ("an edited job description between preview and
+  # download is not served the earlier rewrite", below) drives
+  # 2 * EXPERIENCE_COUNT real per-subject-counted requests in one flow --
+  # confirmed real, not stubbed: enable_real_calls + with_recording_chat
+  # replaces RubyLLM.chat, the seam *inside* MeteredChat#ask, so
+  # LlmCallGuard.record_call! (and its per-subject increment) genuinely runs.
+  # If EXPERIENCE_COUNT ever grows enough to reach LlmCallGuard's local
+  # per-subject default, that test starts failing with
+  # SubjectLimitExceededError instead of testing what it's meant to -- a
+  # confusing failure with no apparent connection to this file. Assert the
+  # relationship directly so a violation fails here, with an explanatory
+  # message, instead of there.
+  test "this file's heaviest per-subject fan-out stays under LlmCallGuard's local per-subject cap" do
+    assert_operator 2 * EXPERIENCE_COUNT, :<, LlmCallGuard.max_calls_per_day_per_subject,
+      "raise MAX_LLM_CALLS_PER_DAY_PER_SUBJECT or shrink EXPERIENCE_COUNT -- otherwise the " \
+      "edited-job-description test below will start failing with SubjectLimitExceededError"
+  end
+
   setup do
     sign_in_as(users(:jordan))
 

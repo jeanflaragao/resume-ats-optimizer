@@ -23,6 +23,7 @@ class LlmCallGuardBootTest < ActiveSupport::TestCase
     "SECRET_KEY_BASE_DUMMY" => nil,
     "ENABLE_REAL_LLM_CALLS" => nil,
     "MAX_LLM_CALLS_PER_DAY" => nil,
+    "MAX_LLM_CALLS_PER_DAY_PER_SUBJECT" => nil,
     "ALLOW_STUB_LLM" => nil,
     "ANTHROPIC_API_KEY" => nil,
     # Issue #120 added a third boot check (config/initializers/
@@ -94,6 +95,33 @@ class LlmCallGuardBootTest < ActiveSupport::TestCase
     refute_match(/BOOTED-OK/, output, "real LLM calls must not run with no key configured")
   end
 
+  # Issue #106/ADR-0039: a fourth boot check, added to this same guard rather
+  # than a new initializer, so it needs no new alphabetical-ordering reasoning
+  # of its own -- it runs inside validate_configuration! after validate_cap!.
+  test "a production boot with the global cap set but no per-subject cap refuses to start" do
+    output = boot_production(
+      "ENABLE_REAL_LLM_CALLS" => "true", "MAX_LLM_CALLS_PER_DAY" => "200",
+      "ANTHROPIC_API_KEY" => "sk-ant-not-a-real-key"
+    )
+
+    assert_match(/ConfigurationError/, output)
+    assert_match(/MAX_LLM_CALLS_PER_DAY_PER_SUBJECT is not set/, output)
+    refute_match(/BOOTED-OK/, output, "the per-subject cap must not be silently inherited from the local default")
+  end
+
+  # A "share" larger than the whole it's a share of isn't a bound at all.
+  test "a production boot with a per-subject cap larger than the global cap refuses to start" do
+    output = boot_production(
+      "ENABLE_REAL_LLM_CALLS" => "true", "MAX_LLM_CALLS_PER_DAY" => "200",
+      "MAX_LLM_CALLS_PER_DAY_PER_SUBJECT" => "201",
+      "ANTHROPIC_API_KEY" => "sk-ant-not-a-real-key"
+    )
+
+    assert_match(/ConfigurationError/, output)
+    assert_match(/must not exceed/, output)
+    refute_match(/BOOTED-OK/, output)
+  end
+
   # The counterweight: without this, none of the assertions above would pass
   # against an app that could not boot production for some entirely unrelated
   # reason.
@@ -101,6 +129,7 @@ class LlmCallGuardBootTest < ActiveSupport::TestCase
     output = boot_production(
       "ENABLE_REAL_LLM_CALLS" => "true",
       "MAX_LLM_CALLS_PER_DAY" => "200",
+      "MAX_LLM_CALLS_PER_DAY_PER_SUBJECT" => "20",
       "ANTHROPIC_API_KEY" => "sk-ant-not-a-real-key",
       **QUOTA_ENV,
       **STRIPE_ENV
