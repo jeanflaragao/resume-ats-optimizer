@@ -36,7 +36,11 @@
           <% experience.bullets.zip(experience.bullet_fallbacks).select { |bullet, _| bullet.present? }.each do |bullet, fell_back| %>
             <li>
               <%= bullet %>
-              <% if fell_back %><span class="text-xs text-gray-400">kept original wording</span><% end %>
+              <% if fell_back %>
+                <span class="text-xs text-gray-400">
+                  <%= LlmCallGuard.stub_mode? ? "no real rewrite ran (stub mode)" : "kept original wording" %>
+                </span>
+              <% end %>
             </li>
           <% end %>
         </ul>

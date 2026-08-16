@@ -8,7 +8,7 @@ class PendingItemFillsTest < ActionDispatch::IntegrationTest
 
     get resume_path(resume)
     assert_response :success
-    assert_includes response.body, "appear in your original document"
+    assert_includes response.body, "no real extraction ran (stub mode)"
 
     post resume_pending_items_path(resume), params: { pending_item: { scope: "resume", field: "name", value: "Jane Doe" } }
     assert_response :redirect
@@ -18,7 +18,13 @@ class PendingItemFillsTest < ActionDispatch::IntegrationTest
     get resume_path(resume)
     assert_response :success
     assert_includes response.body, "Jane Doe"
-    assert_not_includes response.body, "didn't appear in your original document"
+    # Summary and experience stay dropped (unfilled) and legitimately still
+    # carry the same stub-mode reason -- checking the underlying data instead
+    # of a body-wide substring, since that reason text is intentionally
+    # shared across every stub-caused drop, not unique to name/email.
+    remaining_fields = resume.reload.pending_items.map { |item| item["field"] }
+    assert_not_includes remaining_fields, "name"
+    assert_not_includes remaining_fields, "email"
   end
 
   test "fills a resume-scoped dropped field and removes it from pending_items" do
@@ -200,8 +206,9 @@ class PendingItemFillsTest < ActionDispatch::IntegrationTest
   # LlmCallGuard's test-env StubChat always returns those as name/email
   # regardless of file content, so a fixture that doesn't literally contain
   # them fails Resume::Extractors::Llm's verbatim-match check and produces
-  # real dropped_field pending items for name and email, the same way a real
-  # fabrication would. See LlmCallGuard::StubChat#stub_content.
+  # real dropped_field pending items for name and email -- with the
+  # stub-mode-specific reason (issue #125, ADR-0040), not the fidelity
+  # wording a real fabrication would get. See LlmCallGuard::StubChat#stub_content.
   def upload_resume_with_drops
     path = write_fixture({ note: "irrelevant filler text" }.to_json)
     post resumes_path, params: { file: Rack::Test::UploadedFile.new(path, "application/json") }
