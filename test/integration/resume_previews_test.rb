@@ -31,8 +31,9 @@ class ResumePreviewsTest < ActionDispatch::IntegrationTest
     # not a bypass. Same technique test/services/resume/optimization_test.rb uses.
     assert_includes log_output, "bullet 1"
     # Issue #117: the same guaranteed-fallback stub behavior above is a ready-made,
-    # unmocked proof the fell-back-to-original badge actually renders.
-    assert_includes response.body, "kept original wording"
+    # unmocked proof the fell-back-to-original badge actually renders -- issue #125/ADR-0040
+    # gives it the stub-mode-specific caption rather than the generic "kept original wording".
+    assert_includes response.body, "no real rewrite ran (stub mode)"
   end
 
   test "a job description text over MAX_JOB_DESCRIPTION_LENGTH re-renders the resume's show page with an error" do

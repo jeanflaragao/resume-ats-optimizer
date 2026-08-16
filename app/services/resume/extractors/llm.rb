@@ -34,6 +34,18 @@
 # as something to accept. Resume::Import persists these onto the created
 # Resume/Experience/Education rows so resumes/show.html.erb can surface them.
 #
+# Issue #125/ADR-0040: when chat is LlmCallGuard::StubChat, every drop's reason
+# is replaced with a single canonical message rather than the field-specific
+# fidelity wording. StubChat's canned values ("Stub Candidate", the summary's
+# STUB_LABEL, etc.) fail the exact same verbatim/fidelity checks a real
+# fabrication would, so without this a stub-mode upload is indistinguishable
+# from one where a real extraction actually hallucinated -- the drops are
+# real, only the explanation was wrong. Checked per chat instance
+# (chat.is_a?(StubChat)), not the global LlmCallGuard.stub_mode? -- this
+# class's own tests inject a FakeChat to simulate real hallucinated output
+# while ENABLE_REAL_LLM_CALLS stays unset in the test env, and the global flag
+# would mislabel that simulated-real case as stub mode.
+#
 # Note: reading the file's raw text here (via pdftotext, for PDFs) to verify
 # against still sets a verification floor under this LLM path — Claude's native
 # PDF understanding can legitimately diverge from any text-layer reading (column
@@ -55,6 +67,7 @@ class Resume::Extractors::Llm
   SUMMARY_MIN_TOKEN_COVERAGE = 0.75
   YEAR_PATTERN = /\A(\d{4})/
   DIGITS_PATTERN = /\d/
+  STUB_MODE_REASON = "no real extraction ran (stub mode)".freeze
 
   PROMPT = <<~PROMPT.freeze
     Extract the candidate's name, email, phone, professional summary, skills, work
@@ -107,7 +120,7 @@ class Resume::Extractors::Llm
 
     warn_drop("summary", "unverifiable tokens: #{result.unverifiable_tokens.size} tokens",
               token_info: redacted_token_hint(result.unverifiable_tokens))
-    pending_items << pending_item("summary", "didn't closely match your original document")
+    pending_items << pending_item("summary", verification_reason("didn't closely match your original document"))
     nil
   end
 
@@ -125,7 +138,7 @@ class Resume::Extractors::Llm
     end
 
     dropped_count = skills.size - kept.size
-    pending_items << pending_item("skill", drop_count_reason("skill", dropped_count, "didn't appear in your original document")) if dropped_count > 0
+    pending_items << pending_item("skill", verification_reason(drop_count_reason("skill", dropped_count, "didn't appear in your original document"))) if dropped_count > 0
 
     kept
   end
@@ -136,13 +149,13 @@ class Resume::Extractors::Llm
 
     if company.blank? || title.blank?
       warn_drop("experience entry", "required field blank")
-      pending_items << pending_item("experience", "an experience entry couldn't be verified")
+      pending_items << pending_item("experience", verification_reason("an experience entry couldn't be verified"))
       return nil
     end
 
     unless word_boundary_match?(company.to_s, source_text) && word_boundary_match?(title.to_s, source_text)
       warn_drop("experience entry", "not found in source text")
-      pending_items << pending_item("experience", "an experience entry didn't appear in your original document")
+      pending_items << pending_item("experience", verification_reason("an experience entry didn't appear in your original document"))
       return nil
     end
 
@@ -161,13 +174,13 @@ class Resume::Extractors::Llm
 
     if school.blank?
       warn_drop("education entry", "required field blank")
-      pending_items << pending_item("education", "an education entry couldn't be verified")
+      pending_items << pending_item("education", verification_reason("an education entry couldn't be verified"))
       return nil
     end
 
     unless word_boundary_match?(school.to_s, source_text)
       warn_drop("education entry", "not found in source text")
-      pending_items << pending_item("education", "an education entry didn't appear in your original document")
+      pending_items << pending_item("education", verification_reason("an education entry didn't appear in your original document"))
       return nil
     end
 
@@ -184,7 +197,7 @@ class Resume::Extractors::Llm
     return value if word_boundary_match?(value, source_text)
 
     warn_drop(field_name, "not found in source text")
-    pending_items << pending_item(field_name, "didn't appear in your original document")
+    pending_items << pending_item(field_name, verification_reason("didn't appear in your original document"))
     nil
   end
 
@@ -197,7 +210,7 @@ class Resume::Extractors::Llm
     return phone if digits.present? && source_digits.include?(digits)
 
     warn_drop("phone", "not found in source text")
-    pending_items << pending_item("phone", "didn't appear in your original document")
+    pending_items << pending_item("phone", verification_reason("didn't appear in your original document"))
     nil
   end
 
@@ -212,7 +225,7 @@ class Resume::Extractors::Llm
     return date_value if year && source_text.include?(year)
 
     warn_drop(field_name, "year not found in source text")
-    pending_items << pending_item(field_name, "date didn't appear in your original document")
+    pending_items << pending_item(field_name, verification_reason("date didn't appear in your original document"))
     nil
   end
 
@@ -229,7 +242,7 @@ class Resume::Extractors::Llm
     end
 
     dropped_count = bullets.size - kept.size
-    pending_items << pending_item("bullet", drop_count_reason("bullet", dropped_count, "didn't closely match your original document")) if dropped_count > 0
+    pending_items << pending_item("bullet", verification_reason(drop_count_reason("bullet", dropped_count, "didn't closely match your original document"))) if dropped_count > 0
 
     kept
   end
@@ -241,6 +254,17 @@ class Resume::Extractors::Llm
   def drop_count_reason(noun, count, tail)
     subject = count == 1 ? "a #{noun}" : "#{count} #{noun.pluralize}"
     "#{subject} #{tail}"
+  end
+
+  # Issue #125/ADR-0040: the actual chat instance this call received, not the
+  # global LlmCallGuard.stub_mode? -- see the class comment above for why the
+  # distinction matters for this class's own tests.
+  def stub_extraction?
+    chat.is_a?(LlmCallGuard::StubChat)
+  end
+
+  def verification_reason(default)
+    stub_extraction? ? STUB_MODE_REASON : default
   end
 
   def warn_drop(field, reason, token_info: nil)

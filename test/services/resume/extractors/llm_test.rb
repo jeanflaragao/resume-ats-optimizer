@@ -468,6 +468,37 @@ class Resume::Extractors::LlmTest < ActiveSupport::TestCase
     end
   end
 
+  # Issue #125/ADR-0040: StubChat's canned values ("Stub Candidate", "Example
+  # Corp"/"Stub Engineer") never appear verbatim in a real, non-colluding
+  # source document, so without this fix the resulting drops read exactly
+  # like a real fabrication -- the bug this ADR fixes. sample_pdf_path's text
+  # ("Jane Doe", "Acme Corp"...) deliberately does not contain any of them.
+  test "gives a stub-mode drop a distinct reason instead of the fidelity wording" do
+    result = Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: LlmCallGuard::StubChat.new)
+
+    assert_nil result["name"]
+    name_item = result["pending_items"].find { |item| item["field"] == "name" }
+    assert_equal "no real extraction ran (stub mode)", name_item["reason"]
+
+    assert_equal [], result["experiences"]
+    experience_item = result["pending_items"].find { |item| item["field"] == "experience" }
+    assert_equal "no real extraction ran (stub mode)", experience_item["reason"]
+  end
+
+  # Regression guard for the ADR-0040 design decision: a FakeChat simulating a
+  # real hallucinated extraction must keep its specific fidelity wording, not
+  # get relabeled "stub mode" just because ENABLE_REAL_LLM_CALLS happens to be
+  # unset in the test environment -- proves the fix checks the chat instance,
+  # not the global LlmCallGuard.stub_mode?.
+  test "keeps the fidelity-specific reason when the chat is not actually a stub" do
+    fake_chat = FakeChat.new(base_extraction.deep_merge("name" => "John Smith"))
+
+    result = Resume::Extractors::Llm.call(file_path: sample_pdf_path, chat: fake_chat)
+
+    pending = result["pending_items"].find { |item| item["field"] == "name" }
+    assert_equal "didn't appear in your original document", pending["reason"]
+  end
+
   private
 
   def base_experience
