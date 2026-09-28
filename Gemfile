@@ -11,7 +11,7 @@ gem "activerecord", "~> 8.1.3"
 gem "actionpack", "~> 8.1.3"
 gem "actionview", "~> 8.1.3"
 gem "activejob", "~> 8.1.3"
-gem "actioncable", "~> 8.1.3"
+gem "actioncable", "~> 8.1.4"
 gem "actionmailer", "~> 8.1.3"
 # The modern asset pipeline for Rails [https://github.com/rails/propshaft]
 gem "propshaft"
